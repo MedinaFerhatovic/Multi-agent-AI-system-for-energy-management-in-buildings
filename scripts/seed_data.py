@@ -240,8 +240,8 @@ def simulate_building(conn, building_id, name, location_id, floors, units_total,
     # Insert tariff model (one row per building)
     cur.execute("""
         INSERT OR REPLACE INTO tariff_model
-        (building_id, low_tariff_start, low_tariff_end, low_price_per_kwh, high_price_per_kwh, currency)
-        VALUES (?, '22:00', '06:00', 0.08, 0.18, 'BAM')
+        (building_id, low_tariff_start, low_tariff_end, low_price_per_kwh, high_price_per_kwh, sunday_all_day_low, currency)
+        VALUES (?, '22:00', '06:00', 0.08, 0.18, 1, 'BAM')
     """, (building_id,))
 
     profiles = build_profiles(building_type)

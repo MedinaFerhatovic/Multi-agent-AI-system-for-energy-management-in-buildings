@@ -50,15 +50,19 @@ ON buildings(location_id);
 -- =========================================================
 CREATE TABLE IF NOT EXISTS tariff_model (
     building_id TEXT PRIMARY KEY,
+
     low_tariff_start TEXT NOT NULL DEFAULT '22:00',
-    low_tariff_end TEXT NOT NULL DEFAULT '06:00',
-    low_price_per_kwh REAL NOT NULL DEFAULT 0.08,
+    low_tariff_end   TEXT NOT NULL DEFAULT '06:00',
+
+    low_price_per_kwh  REAL NOT NULL DEFAULT 0.08,
     high_price_per_kwh REAL NOT NULL DEFAULT 0.18,
+
+    sunday_all_day_low INTEGER NOT NULL DEFAULT 1,
+
     currency TEXT DEFAULT 'BAM',
 
     FOREIGN KEY(building_id) REFERENCES buildings(building_id)
 );
-
 
 -- =========================================================
 -- 3) UNITS (area in INTEGER m²)
