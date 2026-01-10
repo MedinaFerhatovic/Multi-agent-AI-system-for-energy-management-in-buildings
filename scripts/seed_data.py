@@ -10,8 +10,8 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "db" / "smartbuilding.db"
 
-INTERVAL_MINUTES = 15
-DAYS_BACK = 30
+INTERVAL_MINUTES = 30
+DAYS_BACK = 20
 
 # ---------------------------
 # HELPERS
