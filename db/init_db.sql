@@ -179,35 +179,53 @@ ON external_weather(location_id, timestamp);
 -- =========================================================
 -- 7) UNIT_FEATURES_DAILY
 -- =========================================================
+
 CREATE TABLE IF NOT EXISTS unit_features_daily (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
 
+    date TEXT NOT NULL,                 -- YYYY-MM-DD
     building_id TEXT NOT NULL,
     unit_id TEXT NOT NULL,
 
-    avg_occupancy_daytime REAL,
-    avg_occupancy_nighttime REAL,
-    binary_activity_ratio REAL,
+    -- Occupancy features (0..1, dimensionless)
+    avg_occupancy_morning REAL,         -- 06:00-07:59
+    avg_occupancy_daytime REAL,         -- 08:00-16:59
+    avg_occupancy_evening REAL,         -- 17:00-21:59
+    avg_occupancy_nighttime REAL,       -- 22:00-05:59
 
-    weekday_consumption_avg REAL,
-    weekend_consumption_avg REAL,
-    consumption_std_dev REAL,
+    binary_activity_ratio REAL,         -- 0..1 (dimensionless)
 
-    peak_hour_morning INTEGER,
-    peak_hour_evening INTEGER,
+    -- Energy features (same unit as sensor_readings.value for sensor_type='energy')
+    weekday_consumption_avg REAL,       -- avg energy for that date if weekday else NULL
+    weekend_consumption_avg REAL,       -- avg energy for that date if weekend else NULL
+    consumption_std_dev REAL,           -- std dev energy for that date
 
+    -- Peak hour (0..23)
+    peak_hour_morning INTEGER,          -- peak in 06..12
+    peak_hour_evening INTEGER,          -- peak in 16..22
+
+    -- External temperature sensitivity (|Pearson r|, 0..1)
     temp_sensitivity REAL,
-    window_open_freq REAL,
 
-    feature_version INTEGER DEFAULT 1,
+    -- Audit / definition (keep what you asked for)
+    daytime_start_hour INTEGER NOT NULL DEFAULT 8,
+    daytime_end_hour   INTEGER NOT NULL DEFAULT 17,
+    night_start_hour   INTEGER NOT NULL DEFAULT 22,
+    night_end_hour     INTEGER NOT NULL DEFAULT 6,
+
+    feature_version INTEGER NOT NULL DEFAULT 3,
 
     FOREIGN KEY(building_id) REFERENCES buildings(building_id),
-    FOREIGN KEY(unit_id) REFERENCES units(unit_id)
+    FOREIGN KEY(unit_id) REFERENCES units(unit_id),
+
+    UNIQUE(building_id, unit_id, date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_features_unit_date
 ON unit_features_daily(unit_id, date);
+
+CREATE INDEX IF NOT EXISTS idx_features_building_date
+ON unit_features_daily(building_id, date);
 
 
 -- =========================================================
