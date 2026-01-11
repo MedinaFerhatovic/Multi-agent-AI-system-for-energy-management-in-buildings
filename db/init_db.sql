@@ -354,3 +354,21 @@ CREATE TABLE IF NOT EXISTS anomalies_log (
     FOREIGN KEY(unit_id) REFERENCES units(unit_id),
     FOREIGN KEY(sensor_id) REFERENCES sensors(sensor_id)
 );
+
+CREATE TABLE IF NOT EXISTS model_registry (
+    model_id TEXT PRIMARY KEY,
+    model_scope TEXT NOT NULL,            -- 'global' ili 'building'
+    model_task TEXT NOT NULL,             -- 'consumption_forecast'
+    model_type TEXT NOT NULL,             -- 'random_forest' / 'gradient_boosting'
+    feature_version INTEGER NOT NULL,
+    trained_at TEXT NOT NULL,             -- ISO timestamp
+    file_path TEXT NOT NULL,              -- gdje je .pkl
+    metrics_json TEXT NOT NULL,           -- JSON string
+    is_active INTEGER NOT NULL DEFAULT 0  -- 1 aktivan, 0 neaktivan
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_registry_active
+ON model_registry(is_active, model_task);
+
+CREATE INDEX IF NOT EXISTS idx_model_registry_scope
+ON model_registry(model_scope, model_task);
