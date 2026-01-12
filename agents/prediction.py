@@ -88,7 +88,7 @@ def prediction_node(state: GraphState) -> GraphState:
 
         with connect() as conn:
             model_id, model, scaler, model_conf = load_active_consumption_model(conn)
-
+            model_conf = round(float(model_conf), 1)
             predictions: Dict[str, Dict[str, Any]] = {}
             rows_to_insert: List[Dict[str, Any]] = []
 
@@ -105,7 +105,7 @@ def prediction_node(state: GraphState) -> GraphState:
 
                 x = _build_features(records)
                 xs = scaler.transform([x])
-                pred = float(model.predict(xs)[0])
+                pred = round(float(model.predict(xs)[0]), 1)
 
                 predictions[unit_id] = {
                     "timestamp_target": target_ts,
@@ -115,7 +115,7 @@ def prediction_node(state: GraphState) -> GraphState:
                 }
 
                 rows_to_insert.append({
-                    "timestamp_created": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "timestamp_created": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
                     "timestamp_target": target_ts,
                     "building_id": building_id,
                     "unit_id": unit_id,

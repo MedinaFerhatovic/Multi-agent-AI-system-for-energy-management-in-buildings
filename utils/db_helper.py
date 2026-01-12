@@ -2,16 +2,23 @@ import sqlite3
 import json
 import pickle
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
+from datetime import datetime, timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "db" / "smartbuilding.db"
 
 
-def connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+def connect(timeout: int = 30) -> sqlite3.Connection:
+    """
+    Central DB connection. Timeout helps avoid 'database is locked'.
+    WAL helps concurrency (multiple reads + writes).
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON;")
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
 
 
@@ -21,6 +28,8 @@ def connect() -> sqlite3.Connection:
 def get_latest_readings(conn: sqlite3.Connection, building_id: str) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """
     Latest point per unit_id + sensor_type (one row per sensor type per unit).
+    Returns:
+      { unit_id: { sensor_type: {timestamp, value} } }
     """
     query = """
     WITH latest AS (
@@ -52,26 +61,34 @@ def get_latest_readings(conn: sqlite3.Connection, building_id: str) -> Dict[str,
 
 
 def insert_anomalies(conn: sqlite3.Connection, anomalies: List[Dict[str, Any]]) -> None:
+    """
+    Insert anomalies into anomalies_log.
+    Expected anomaly keys:
+      timestamp, building_id, unit_id, type, value, severity, action
+    """
     if not anomalies:
         return
 
-    conn.executemany("""
+    conn.executemany(
+        """
         INSERT INTO anomalies_log
         (timestamp, building_id, unit_id, sensor_id,
          anomaly_type, value, severity, action_taken)
         VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
-    """, [
-        (
-            a["timestamp"],
-            a["building_id"],
-            a["unit_id"],
-            a["type"],
-            a["value"],
-            a["severity"],
-            a["action"],
-        )
-        for a in anomalies
-    ])
+        """,
+        [
+            (
+                a["timestamp"],
+                a["building_id"],
+                a["unit_id"],
+                a["type"],
+                a["value"],
+                a["severity"],
+                a["action"],
+            )
+            for a in anomalies
+        ],
+    )
     conn.commit()
 
 
@@ -80,10 +97,16 @@ def insert_anomalies(conn: sqlite3.Connection, anomalies: List[Dict[str, Any]]) 
 # =========================================================
 def load_active_consumption_model(conn: sqlite3.Connection) -> Tuple[str, Any, Any, float]:
     """
-    Returns: (model_id, model, scaler, confidence)
-    confidence: tries to use metrics_json -> test.r2, else 0.5
+    Loads ACTIVE global consumption model from model_registry and disk.
+
+    Returns:
+      (model_id, model, scaler, confidence)
+
+    confidence:
+      tries to use metrics_json -> test.r2 (clamped 0..1), else 0.5
     """
-    row = conn.execute("""
+    row = conn.execute(
+        """
         SELECT model_id, file_path, metrics_json
         FROM model_registry
         WHERE model_scope='global'
@@ -91,7 +114,8 @@ def load_active_consumption_model(conn: sqlite3.Connection) -> Tuple[str, Any, A
           AND is_active=1
         ORDER BY trained_at DESC
         LIMIT 1
-    """).fetchone()
+        """
+    ).fetchone()
 
     if not row:
         raise RuntimeError(
@@ -123,11 +147,17 @@ def load_active_consumption_model(conn: sqlite3.Connection) -> Tuple[str, Any, A
     return model_id, model, scaler, conf
 
 
-def fetch_recent_series_for_unit(conn: sqlite3.Connection, unit_id: str, lookback: int = 48) -> List[Dict[str, Any]]:
+def fetch_recent_series_for_unit(
+    conn: sqlite3.Connection,
+    unit_id: str,
+    lookback: int = 48
+) -> List[Dict[str, Any]]:
     """
     Fetch last N aligned records for a unit:
-    energy + occupancy + area + weather
-    (This matches what your model expects)
+      energy + occupancy + area + weather
+
+    This matches what your global consumption model expects.
+    Returns list chronological (old -> new).
     """
     q = """
     SELECT
@@ -165,42 +195,191 @@ def fetch_recent_series_for_unit(conn: sqlite3.Connection, unit_id: str, lookbac
 
     out: List[Dict[str, Any]] = []
     for r in reversed(rows):  # chronological
-        out.append({
-            "timestamp": r["timestamp"],
-            "building_id": r["building_id"],
-            "unit_id": r["unit_id"],
-            "energy": float(r["energy"]),
-            "occupancy": float(r["occupancy"]),
-            "area_m2": float(r["area_m2"]),
-            "temp_external": float(r["temp_external"]),
-            "wind_speed_kmh": float(r["wind_speed_kmh"]),
-            "cloud_cover": float(r["cloud_cover"]),
-        })
+        out.append(
+            {
+                "timestamp": r["timestamp"],
+                "building_id": r["building_id"],
+                "unit_id": r["unit_id"],
+                "energy": float(r["energy"]),
+                "occupancy": float(r["occupancy"]),
+                "area_m2": float(r["area_m2"]),
+                "temp_external": float(r["temp_external"]),
+                "wind_speed_kmh": float(r["wind_speed_kmh"]),
+                "cloud_cover": float(r["cloud_cover"]),
+            }
+        )
     return out
 
 
 def insert_predictions_rows(conn: sqlite3.Connection, rows: List[Dict[str, Any]]) -> None:
+    """
+    Inserts rows into predictions table.
+
+    Expected keys:
+      timestamp_created, timestamp_target, building_id, unit_id,
+      predicted_consumption, predicted_occupancy_prob,
+      model_name, confidence
+    """
     if not rows:
         return
 
-    conn.executemany("""
+    conn.executemany(
+        """
         INSERT INTO predictions (
             timestamp_created, timestamp_target,
             building_id, unit_id,
             predicted_consumption, predicted_occupancy_prob,
             model_name, confidence
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, [
-        (
-            r["timestamp_created"],
-            r["timestamp_target"],
-            r["building_id"],
-            r["unit_id"],
-            r["predicted_consumption"],
-            r["predicted_occupancy_prob"],
-            r["model_name"],
-            r["confidence"],
-        )
-        for r in rows
-    ])
+        """,
+        [
+            (
+                r["timestamp_created"],
+                r["timestamp_target"],
+                r["building_id"],
+                r["unit_id"],
+                r["predicted_consumption"],
+                r["predicted_occupancy_prob"],
+                r["model_name"],
+                r["confidence"],
+            )
+            for r in rows
+        ],
+    )
+    conn.commit()
+
+
+# =========================================================
+# Agent 3 helpers
+# =========================================================
+def get_unit_cluster(conn: sqlite3.Connection, building_id: str, unit_id: str) -> Optional[str]:
+    """
+    Returns latest cluster_id for unit (if clustering has been run).
+    """
+    row = conn.execute(
+        """
+        SELECT cluster_id
+        FROM unit_cluster_assignment
+        WHERE building_id = ?
+          AND unit_id = ?
+        ORDER BY start_date DESC
+        LIMIT 1
+        """,
+        (building_id, unit_id),
+    ).fetchone()
+
+    return row[0] if row else None
+
+
+def get_tariff_for_building(conn: sqlite3.Connection, building_id: str) -> Dict[str, Any]:
+    """
+    Reads tariff_model (1 row per building).
+    If missing, returns defaults.
+    """
+    row = conn.execute(
+        """
+        SELECT low_tariff_start, low_tariff_end,
+               low_price_per_kwh, high_price_per_kwh,
+               sunday_all_day_low, currency
+        FROM tariff_model
+        WHERE building_id = ?
+        LIMIT 1
+        """,
+        (building_id,),
+    ).fetchone()
+
+    if not row:
+        return {
+            "low_tariff_start": "22:00",
+            "low_tariff_end": "06:00",
+            "low_price_per_kwh": 0.08,
+            "high_price_per_kwh": 0.18,
+            "sunday_all_day_low": 1,
+            "currency": "BAM",
+        }
+
+    return {
+        "low_tariff_start": row["low_tariff_start"],
+        "low_tariff_end": row["low_tariff_end"],
+        "low_price_per_kwh": float(row["low_price_per_kwh"]),
+        "high_price_per_kwh": float(row["high_price_per_kwh"]),
+        "sunday_all_day_low": int(row["sunday_all_day_low"]),
+        "currency": row["currency"],
+    }
+
+
+def _time_to_minutes(hhmm: str) -> int:
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+
+def get_price_for_timestamp(tariff: Dict[str, Any], ts_iso: str) -> float:
+    """
+    Given tariff dict + ISO timestamp, returns low/high price.
+    Handles wrap like 22:00 -> 06:00 and Sunday all-day low.
+    """
+    dt = datetime.fromisoformat(ts_iso.replace("Z", ""))
+
+    # Sunday all-day low?
+    if int(tariff.get("sunday_all_day_low", 1)) == 1 and dt.weekday() == 6:
+        return float(tariff["low_price_per_kwh"])
+
+    start = _time_to_minutes(tariff["low_tariff_start"])
+    end = _time_to_minutes(tariff["low_tariff_end"])
+    cur = dt.hour * 60 + dt.minute
+
+    # wrap case (start > end)
+    if start <= end:
+        is_low = start <= cur < end
+    else:
+        is_low = (cur >= start) or (cur < end)
+
+    return float(tariff["low_price_per_kwh"] if is_low else tariff["high_price_per_kwh"])
+
+
+def insert_optimization_plans(conn: sqlite3.Connection, rows: List[Dict[str, Any]]) -> None:
+    """
+    Bulk insert into optimization_plans table.
+
+    Expected keys:
+      timestamp, building_id, unit_id,
+      action_type, target_temp,
+      start_time, end_time,
+      estimated_cost, estimated_savings,
+      method (optional)
+    """
+    if not rows:
+        return
+
+    conn.executemany(
+        """
+        INSERT INTO optimization_plans (
+            timestamp,
+            building_id,
+            unit_id,
+            action_type,
+            target_temp,
+            start_time,
+            end_time,
+            estimated_cost,
+            estimated_savings,
+            method
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                r["timestamp"],
+                r["building_id"],
+                r["unit_id"],
+                r["action_type"],
+                r["target_temp"],
+                r.get("start_time"),
+                r.get("end_time"),
+                r.get("estimated_cost"),
+                r.get("estimated_savings"),
+                r.get("method", "heuristic_v1"),
+            )
+            for r in rows
+        ],
+    )
     conn.commit()
