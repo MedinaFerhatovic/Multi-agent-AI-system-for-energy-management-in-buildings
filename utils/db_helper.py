@@ -22,6 +22,15 @@ def connect(timeout: int = 30) -> sqlite3.Connection:
     return conn
 
 
+def _safe_float(x: Any, default: Optional[float] = None) -> Optional[float]:
+    if x is None:
+        return default
+    try:
+        return float(x)
+    except Exception:
+        return default
+
+
 # =========================================================
 # Agent 1 helpers
 # =========================================================
@@ -381,5 +390,46 @@ def insert_optimization_plans(conn: sqlite3.Connection, rows: List[Dict[str, Any
             )
             for r in rows
         ],
+    )
+    conn.commit()
+
+
+# =========================================================
+# Agent 4 helpers
+# =========================================================
+def insert_decision_log(conn: sqlite3.Connection, decision: Dict[str, Any]) -> None:
+    """
+    Inserts a single decision into decisions_log.
+
+    Expected keys in decision:
+      timestamp, building_id, unit_id,
+      action, approved,
+      reasoning (optional),
+      confidence (optional),
+      mode (optional; default 'learning')
+    """
+    conn.execute(
+        """
+        INSERT INTO decisions_log (
+            timestamp,
+            building_id,
+            unit_id,
+            action,
+            approved,
+            reasoning_text,
+            confidence,
+            mode
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            decision["timestamp"],
+            decision["building_id"],
+            decision["unit_id"],
+            decision["action"],
+            1 if decision.get("approved", True) else 0,
+            decision.get("reasoning"),
+            _safe_float(decision.get("confidence")),
+            decision.get("mode", "learning"),
+        ),
     )
     conn.commit()
