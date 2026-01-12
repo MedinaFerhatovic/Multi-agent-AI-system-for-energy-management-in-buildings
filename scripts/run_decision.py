@@ -1,3 +1,4 @@
+# scripts/run_full_backfill.py
 import sys
 from pathlib import Path
 
@@ -12,8 +13,11 @@ from utils.db_helper import (
     step_anchor_back,
 )
 from agents.data_monitor import data_monitor_node
+from agents.prediction import prediction_node
+from agents.optimization import optimization_node
+from agents.decision import decision_node
 
-PIPELINE_NAME = "data_monitor_backfill"
+PIPELINE_NAME = "full_pipeline_backfill"
 STEP_HOURS = 24
 
 def make_state(building_id: str, anchor_ts: str):
@@ -40,18 +44,24 @@ if __name__ == "__main__":
             anchor = get_or_init_anchor(conn, PIPELINE_NAME, bid)
 
         state = make_state(bid, anchor)
-        out = data_monitor_node(state)
+
+        state = data_monitor_node(state)
+        state = prediction_node(state)
+        state = optimization_node(state)
+        state = decision_node(state)
 
         print(f"\n=== {bid} @ {anchor} ===")
-        print("ANOMALIES:", len(out["anomalies"]))
+        print("ANOMALIES:", len(state["anomalies"]))
+        print("PREDICTIONS:", len(state["predictions"]))
+        print("PLANS:", len(state["optimization_plans"]))
+        print("DECISIONS:", len(state["final_decisions"]))
         print("LOG:")
-        for line in out["execution_log"]:
+        for line in state["execution_log"]:
             print(" -", line)
-        if out["errors"]:
-            print("ERRORS:", out["errors"])
-            continue  # ne pomjeraj anchor ako je fail
+        if state["errors"]:
+            print("ERRORS:", state["errors"])
+            continue
 
-        # ✅ pomjeri anchor 24h unazad za sljedeći run
         with connect() as conn:
             next_anchor = step_anchor_back(conn, PIPELINE_NAME, bid, hours=STEP_HOURS)
 

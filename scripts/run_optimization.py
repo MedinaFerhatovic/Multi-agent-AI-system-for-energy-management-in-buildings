@@ -1,55 +1,63 @@
 import sys
 from pathlib import Path
-from datetime import datetime, timezone
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-from utils.db_helper import connect
+from utils.db_helper import (
+    connect,
+    get_all_building_ids,
+    ensure_pipeline_progress,
+    get_or_init_anchor,
+    step_anchor_back,
+)
 from agents.data_monitor import data_monitor_node
 from agents.prediction import prediction_node
 from agents.optimization import optimization_node
 
+PIPELINE_NAME = "monitor_predict_opt_backfill"
+STEP_HOURS = 24
 
-def get_buildings(conn):
-    rows = conn.execute("SELECT building_id FROM buildings ORDER BY building_id").fetchall()
-    return [r[0] for r in rows]
-
-
-def make_state(building_id: str):
+def make_state(building_id: str, anchor_ts: str):
     return {
-        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "timestamp": anchor_ts,
         "building_id": building_id,
-
         "sensor_data": {},
         "validated_data": {},
         "anomalies": [],
-
         "predictions": {},
         "optimization_plans": {},
         "final_decisions": [],
-
         "execution_log": [],
         "errors": [],
     }
 
-
 if __name__ == "__main__":
-    # prvo uzmi listu zgrada
     with connect() as conn:
-        buildings = get_buildings(conn)
+        ensure_pipeline_progress(conn)
+        buildings = get_all_building_ids(conn)
 
-    # onda obradi jednu po jednu (smanjuje lock probleme)
-    for b in buildings:
-        state = make_state(b)
+    for bid in buildings:
+        with connect() as conn:
+            anchor = get_or_init_anchor(conn, PIPELINE_NAME, bid)
 
+        state = make_state(bid, anchor)
         state = data_monitor_node(state)
         state = prediction_node(state)
         state = optimization_node(state)
 
-        print(f"\n=== {b} ===")
-        print("LOG:", state["execution_log"])
-        print("ERRORS:", state["errors"])
+        print(f"\n=== {bid} @ {anchor} ===")
         print("ANOMALIES:", len(state["anomalies"]))
         print("PREDICTIONS:", len(state["predictions"]))
         print("PLANS:", len(state["optimization_plans"]))
+        print("LOG:")
+        for line in state["execution_log"]:
+            print(" -", line)
+        if state["errors"]:
+            print("ERRORS:", state["errors"])
+            continue  # ne pomjeraj anchor ako fail
+
+        with connect() as conn:
+            next_anchor = step_anchor_back(conn, PIPELINE_NAME, bid, hours=STEP_HOURS)
+
+        print(f"NEXT_ANCHOR (next run): {next_anchor}")
