@@ -1,9 +1,10 @@
+# utils/db_helper.py
 import sqlite3
 import json
 import pickle
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "db" / "smartbuilding.db"
@@ -55,7 +56,6 @@ def get_latest_readings(conn: sqlite3.Connection, building_id: str) -> Dict[str,
      AND sr.timestamp = latest.ts
     WHERE sr.building_id = ?
     """
-
     rows = conn.execute(query, (building_id, building_id)).fetchall()
     data: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
@@ -65,7 +65,89 @@ def get_latest_readings(conn: sqlite3.Connection, building_id: str) -> Dict[str,
             "timestamp": r["timestamp"],
             "value": float(r["value"]),
         }
+    return data
 
+
+def get_recent_readings(
+    conn,
+    building_id: str,
+    sensor_types: list[str],
+    lookback_hours: int,
+    anchor_ts: str,   # ISO string iz baze/state-a
+):
+    placeholders = ",".join("?" for _ in sensor_types)
+    query = f"""
+SELECT unit_id, sensor_type, timestamp, value
+FROM sensor_readings
+WHERE building_id = ?
+  AND sensor_type IN ({placeholders})
+  AND datetime(replace(replace(timestamp,'T',' '),'Z','')) >= datetime(replace(replace(?,'T',' '),'Z',''), ?)
+  AND datetime(replace(replace(timestamp,'T',' '),'Z','')) <= datetime(replace(replace(?,'T',' '),'Z',''))
+ORDER BY unit_id, sensor_type, timestamp
+"""
+
+    hours_expr = f"-{int(lookback_hours)} hours"
+    params = [building_id, *sensor_types, anchor_ts, hours_expr, anchor_ts]
+
+    rows = conn.execute(query, params).fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(r["unit_id"], {}).setdefault(r["sensor_type"], []).append((r["timestamp"], float(r["value"])))
+    return out
+
+def get_latest_readings_asof(conn, building_id: str, anchor_ts: str):
+    query = """
+    WITH latest AS (
+        SELECT unit_id, sensor_type, MAX(timestamp) AS ts
+        FROM sensor_readings
+        WHERE building_id = ?
+          AND datetime(timestamp) <= datetime(?)
+        GROUP BY unit_id, sensor_type
+    )
+    SELECT sr.unit_id, sr.sensor_type, sr.timestamp, sr.value
+    FROM sensor_readings sr
+    JOIN latest
+      ON sr.unit_id = latest.unit_id
+     AND sr.sensor_type = latest.sensor_type
+     AND sr.timestamp = latest.ts
+    WHERE sr.building_id = ?
+    """
+    rows = conn.execute(query, (building_id, anchor_ts, building_id)).fetchall()
+    data = {}
+    for r in rows:
+        data.setdefault(r["unit_id"], {})
+        data[r["unit_id"]][r["sensor_type"]] = {
+            "timestamp": r["timestamp"],
+            "value": float(r["value"])
+        }
+    return data
+
+def get_latest_readings_asof(conn, building_id: str, anchor_ts: str):
+    query = """
+    WITH latest AS (
+        SELECT unit_id, sensor_type, MAX(timestamp) AS ts
+        FROM sensor_readings
+        WHERE building_id = ?
+          AND datetime(timestamp) <= datetime(?)
+        GROUP BY unit_id, sensor_type
+    )
+    SELECT sr.unit_id, sr.sensor_type, sr.timestamp, sr.value
+    FROM sensor_readings sr
+    JOIN latest
+      ON sr.unit_id = latest.unit_id
+     AND sr.sensor_type = latest.sensor_type
+     AND sr.timestamp = latest.ts
+    WHERE sr.building_id = ?
+    """
+    rows = conn.execute(query, (building_id, anchor_ts, building_id)).fetchall()
+
+    data = {}
+    for r in rows:
+        data.setdefault(r["unit_id"], {})
+        data[r["unit_id"]][r["sensor_type"]] = {
+            "timestamp": r["timestamp"],
+            "value": float(r["value"]),
+        }
     return data
 
 
@@ -219,6 +301,62 @@ def fetch_recent_series_for_unit(
         )
     return out
 
+def fetch_recent_series_for_unit_asof(
+    conn: sqlite3.Connection,
+    unit_id: str,
+    anchor_ts: str,
+    lookback: int = 48
+) -> List[Dict[str, Any]]:
+    q = """
+    SELECT
+        sr.timestamp,
+        sr.building_id,
+        sr.unit_id,
+        sr.value AS energy,
+        COALESCE(occ.value, 0.0) AS occupancy,
+        COALESCE(u.area_m2_final, 50.0) AS area_m2,
+        COALESCE(ew.temp_external, 0.0) AS temp_external,
+        COALESCE(ew.wind_speed_kmh, 0.0) AS wind_speed_kmh,
+        COALESCE(ew.cloud_cover, 0.0) AS cloud_cover
+    FROM sensor_readings sr
+    JOIN units u ON u.unit_id = sr.unit_id
+    JOIN buildings b ON b.building_id = sr.building_id
+    LEFT JOIN sensor_readings occ
+      ON occ.building_id = sr.building_id
+     AND occ.unit_id = sr.unit_id
+     AND occ.timestamp = sr.timestamp
+     AND occ.sensor_type = 'occupancy'
+     AND occ.quality_flag = 'ok'
+    LEFT JOIN external_weather ew
+      ON ew.location_id = b.location_id
+     AND ew.timestamp = sr.timestamp
+    WHERE sr.sensor_type='energy'
+      AND sr.quality_flag='ok'
+      AND sr.unit_id=?
+      AND datetime(sr.timestamp) <= datetime(?)
+    ORDER BY sr.timestamp DESC
+    LIMIT ?
+    """
+    rows = conn.execute(q, (unit_id, anchor_ts, lookback)).fetchall()
+    if not rows:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for r in reversed(rows):
+        out.append(
+            {
+                "timestamp": r["timestamp"],
+                "building_id": r["building_id"],
+                "unit_id": r["unit_id"],
+                "energy": float(r["energy"]),
+                "occupancy": float(r["occupancy"]),
+                "area_m2": float(r["area_m2"]),
+                "temp_external": float(r["temp_external"]),
+                "wind_speed_kmh": float(r["wind_speed_kmh"]),
+                "cloud_cover": float(r["cloud_cover"]),
+            }
+        )
+    return out 
 
 def insert_predictions_rows(conn: sqlite3.Connection, rows: List[Dict[str, Any]]) -> None:
     """
@@ -392,44 +530,62 @@ def insert_optimization_plans(conn: sqlite3.Connection, rows: List[Dict[str, Any
         ],
     )
     conn.commit()
+    
+def ensure_pipeline_progress(conn):
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS pipeline_progress (
+      pipeline_name TEXT NOT NULL,
+      building_id   TEXT NOT NULL,
+      current_anchor_ts TEXT NOT NULL,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (pipeline_name, building_id)
+    );
+    """)
+    conn.commit()
 
+def get_latest_timestamp(conn, building_id: str) -> str | None:
+    row = conn.execute(
+        "SELECT MAX(timestamp) AS ts FROM sensor_readings WHERE building_id=?",
+        (building_id,),
+    ).fetchone()
+    return row["ts"] if row and row["ts"] else None
 
-# =========================================================
-# Agent 4 helpers
-# =========================================================
-def insert_decision_log(conn: sqlite3.Connection, decision: Dict[str, Any]) -> None:
-    """
-    Inserts a single decision into decisions_log.
+def get_all_building_ids(conn) -> list[str]:
+    rows = conn.execute("SELECT building_id FROM buildings ORDER BY building_id").fetchall()
+    return [r[0] for r in rows]
 
-    Expected keys in decision:
-      timestamp, building_id, unit_id,
-      action, approved,
-      reasoning (optional),
-      confidence (optional),
-      mode (optional; default 'learning')
-    """
+def get_or_init_anchor(conn, pipeline_name: str, building_id: str) -> str:
+    row = conn.execute(
+        "SELECT current_anchor_ts FROM pipeline_progress WHERE pipeline_name=? AND building_id=?",
+        (pipeline_name, building_id),
+    ).fetchone()
+
+    if row:
+        return row[0]
+
+    latest = get_latest_timestamp(conn, building_id)
+    if not latest:
+        raise RuntimeError(f"No sensor_readings for building_id={building_id}")
+
     conn.execute(
-        """
-        INSERT INTO decisions_log (
-            timestamp,
-            building_id,
-            unit_id,
-            action,
-            approved,
-            reasoning_text,
-            confidence,
-            mode
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            decision["timestamp"],
-            decision["building_id"],
-            decision["unit_id"],
-            decision["action"],
-            1 if decision.get("approved", True) else 0,
-            decision.get("reasoning"),
-            _safe_float(decision.get("confidence")),
-            decision.get("mode", "learning"),
-        ),
+        "INSERT INTO pipeline_progress(pipeline_name, building_id, current_anchor_ts) VALUES (?, ?, ?)",
+        (pipeline_name, building_id, latest),
     )
     conn.commit()
+    return latest
+
+
+def step_anchor_back(conn, pipeline_name: str, building_id: str, hours: int = 24) -> str:
+    from datetime import datetime, timezone, timedelta
+
+    anchor = get_or_init_anchor(conn, pipeline_name, building_id)
+    dt = datetime.fromisoformat(anchor.replace("Z", "+00:00"))
+    new_dt = dt - timedelta(hours=hours)
+    new_anchor = new_dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    conn.execute(
+        "UPDATE pipeline_progress SET current_anchor_ts=?, updated_at=CURRENT_TIMESTAMP WHERE pipeline_name=? AND building_id=?",
+        (new_anchor, pipeline_name, building_id),
+    )
+    conn.commit()
+    return new_anchor

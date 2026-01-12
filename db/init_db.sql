@@ -372,3 +372,11 @@ ON model_registry(is_active, model_task);
 
 CREATE INDEX IF NOT EXISTS idx_model_registry_scope
 ON model_registry(model_scope, model_task);
+
+CREATE TABLE IF NOT EXISTS pipeline_progress (
+  pipeline_name TEXT NOT NULL,
+  building_id   TEXT NOT NULL,
+  current_anchor_ts TEXT NOT NULL,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (pipeline_name, building_id)
+);
