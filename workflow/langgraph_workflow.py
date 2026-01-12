@@ -7,7 +7,7 @@ from workflow.state_schema import GraphState
 from agents.data_monitor import data_monitor_node
 from agents.prediction import prediction_node
 from agents.optimization import optimization_node
-from agents.executive import executive_node
+from agents.decision import decision_node
 
 
 def build_graph():
@@ -17,7 +17,7 @@ def build_graph():
     workflow.add_node("data_monitor", data_monitor_node)
     workflow.add_node("prediction", prediction_node)
     workflow.add_node("optimization", optimization_node)
-    workflow.add_node("executive", executive_node)
+    workflow.add_node("executive", decision_node)
 
     # Define edges
     workflow.set_entry_point("data_monitor")
