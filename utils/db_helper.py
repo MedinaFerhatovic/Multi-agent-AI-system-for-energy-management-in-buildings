@@ -122,35 +122,6 @@ def get_latest_readings_asof(conn, building_id: str, anchor_ts: str):
         }
     return data
 
-def get_latest_readings_asof(conn, building_id: str, anchor_ts: str):
-    query = """
-    WITH latest AS (
-        SELECT unit_id, sensor_type, MAX(timestamp) AS ts
-        FROM sensor_readings
-        WHERE building_id = ?
-          AND datetime(timestamp) <= datetime(?)
-        GROUP BY unit_id, sensor_type
-    )
-    SELECT sr.unit_id, sr.sensor_type, sr.timestamp, sr.value
-    FROM sensor_readings sr
-    JOIN latest
-      ON sr.unit_id = latest.unit_id
-     AND sr.sensor_type = latest.sensor_type
-     AND sr.timestamp = latest.ts
-    WHERE sr.building_id = ?
-    """
-    rows = conn.execute(query, (building_id, anchor_ts, building_id)).fetchall()
-
-    data = {}
-    for r in rows:
-        data.setdefault(r["unit_id"], {})
-        data[r["unit_id"]][r["sensor_type"]] = {
-            "timestamp": r["timestamp"],
-            "value": float(r["value"]),
-        }
-    return data
-
-
 def insert_anomalies(conn: sqlite3.Connection, anomalies: List[Dict[str, Any]]) -> None:
     """
     Insert anomalies into anomalies_log.
@@ -589,3 +560,39 @@ def step_anchor_back(conn, pipeline_name: str, building_id: str, hours: int = 24
     )
     conn.commit()
     return new_anchor
+
+def insert_decisions_rows(conn, rows: list[dict]) -> None:
+    if not rows:
+        return
+
+    conn.executemany(
+        """
+        INSERT INTO decisions_log (
+            timestamp, building_id, unit_id,
+            action, approved,
+            reasoning_text, confidence, mode
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                r["timestamp"],
+                r["building_id"],
+                r["unit_id"],
+                r["action"],
+                int(r.get("approved", 1)),
+                r.get("reasoning_text"),
+                float(r.get("confidence", 0.6)),
+                r.get("mode", "learning"),
+            )
+            for r in rows
+        ],
+    )
+    conn.commit()
+
+def get_sensor_id(conn: sqlite3.Connection, unit_id: str, sensor_type: str) -> Optional[str]:
+    row = conn.execute(
+        "SELECT sensor_id FROM sensors WHERE unit_id=? AND sensor_type=? LIMIT 1",
+        (unit_id, sensor_type),
+    ).fetchone()
+    return row["sensor_id"] if row else None
+
