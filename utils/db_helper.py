@@ -1,3 +1,4 @@
+# utils/db_helper.py
 import sqlite3
 import json
 import pickle
@@ -46,7 +47,6 @@ def get_latest_readings(conn: sqlite3.Connection, building_id: str) -> Dict[str,
      AND sr.timestamp = latest.ts
     WHERE sr.building_id = ?
     """
-
     rows = conn.execute(query, (building_id, building_id)).fetchall()
     data: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
@@ -56,7 +56,61 @@ def get_latest_readings(conn: sqlite3.Connection, building_id: str) -> Dict[str,
             "timestamp": r["timestamp"],
             "value": float(r["value"]),
         }
+    return data
 
+
+def get_recent_readings(
+    conn,
+    building_id: str,
+    sensor_types: list[str],
+    lookback_hours: int,
+    anchor_ts: str,   # ISO string iz baze/state-a
+):
+    placeholders = ",".join("?" for _ in sensor_types)
+    query = f"""
+SELECT unit_id, sensor_type, timestamp, value
+FROM sensor_readings
+WHERE building_id = ?
+  AND sensor_type IN ({placeholders})
+  AND datetime(replace(replace(timestamp,'T',' '),'Z','')) >= datetime(replace(replace(?,'T',' '),'Z',''), ?)
+  AND datetime(replace(replace(timestamp,'T',' '),'Z','')) <= datetime(replace(replace(?,'T',' '),'Z',''))
+ORDER BY unit_id, sensor_type, timestamp
+"""
+
+    hours_expr = f"-{int(lookback_hours)} hours"
+    params = [building_id, *sensor_types, anchor_ts, hours_expr, anchor_ts]
+
+    rows = conn.execute(query, params).fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(r["unit_id"], {}).setdefault(r["sensor_type"], []).append((r["timestamp"], float(r["value"])))
+    return out
+
+def get_latest_readings_asof(conn, building_id: str, anchor_ts: str):
+    query = """
+    WITH latest AS (
+        SELECT unit_id, sensor_type, MAX(timestamp) AS ts
+        FROM sensor_readings
+        WHERE building_id = ?
+          AND datetime(timestamp) <= datetime(?)
+        GROUP BY unit_id, sensor_type
+    )
+    SELECT sr.unit_id, sr.sensor_type, sr.timestamp, sr.value
+    FROM sensor_readings sr
+    JOIN latest
+      ON sr.unit_id = latest.unit_id
+     AND sr.sensor_type = latest.sensor_type
+     AND sr.timestamp = latest.ts
+    WHERE sr.building_id = ?
+    """
+    rows = conn.execute(query, (building_id, anchor_ts, building_id)).fetchall()
+    data = {}
+    for r in rows:
+        data.setdefault(r["unit_id"], {})
+        data[r["unit_id"]][r["sensor_type"]] = {
+            "timestamp": r["timestamp"],
+            "value": float(r["value"])
+        }
     return data
 
 def get_latest_readings_asof(conn, building_id: str, anchor_ts: str):
