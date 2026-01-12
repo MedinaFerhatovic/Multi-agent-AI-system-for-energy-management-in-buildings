@@ -53,7 +53,7 @@ def executive_node(state: GraphState) -> GraphState:
                 # normalize action field
                 plan_action = plan.get("action") or plan.get("action_type") or "maintain"
 
-                if conf > 0.7:
+                if conf > 0.65:
                     decision = {
                         "timestamp": now_ts,
                         "building_id": building_id,
