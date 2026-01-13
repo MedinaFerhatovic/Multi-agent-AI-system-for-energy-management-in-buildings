@@ -1,4 +1,3 @@
-# agents/weekly_analyzer.py
 from __future__ import annotations
 
 from typing import Dict, Any, List, Optional
@@ -9,9 +8,6 @@ from utils.db_helper import connect, insert_anomalies
 
 
 def _calc_weekly_stats(unit_id: str, conn) -> Optional[Dict[str, Any]]:
-    """
-    Izračunaj 7-dnevnu statistiku potrošnje za jedinicu
-    """
     query = """
     SELECT 
         DATE(timestamp) as day,
@@ -44,9 +40,6 @@ def _calc_weekly_stats(unit_id: str, conn) -> Optional[Dict[str, Any]]:
 
 
 def _detect_weekly_anomalies(unit_id: str, stats: Dict[str, Any], tariff: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Detektuj anomalije na nivou sedmice
-    """
     anomalies = []
     
     avg = stats["avg_daily_kwh"]
@@ -54,7 +47,6 @@ def _detect_weekly_anomalies(unit_id: str, stats: Dict[str, Any], tariff: Dict[s
     min_val = stats["min_daily_kwh"]
     total = stats["total_weekly_kwh"]
     
-    # 1) Ekstremna varijacija (max/min > 3.0)
     if min_val > 0 and (max_val / min_val) > 3.0:
         anomalies.append({
             "unit_id": unit_id,
@@ -71,8 +63,7 @@ def _detect_weekly_anomalies(unit_id: str, stats: Dict[str, Any], tariff: Dict[s
             },
         })
     
-    # 2) Prevelika sedmična potrošnja (threshold: 120 kWh/week za stan)
-    weekly_threshold = 120.0  # možeš prilagoditi po clusteru
+    weekly_threshold = 120.0
     if total > weekly_threshold:
         price = float(tariff.get("high_price_per_kwh", 0.18))
         excess_cost = (total - weekly_threshold) * price
@@ -94,12 +85,11 @@ def _detect_weekly_anomalies(unit_id: str, stats: Dict[str, Any], tariff: Dict[s
             },
         })
     
-    # 3) Trend rasta (ako svaki dan više nego prethodni)
     daily_vals = stats["daily_values"]
     if len(daily_vals) >= 5:
         rising_days = sum(1 for i in range(len(daily_vals)-1) if daily_vals[i+1] > daily_vals[i])
         
-        if rising_days >= 4:  # bar 4 od 6 dana raste
+        if rising_days >= 4:
             anomalies.append({
                 "unit_id": unit_id,
                 "type": "weekly_consumption_rising_trend",
@@ -121,20 +111,11 @@ def _detect_weekly_anomalies(unit_id: str, stats: Dict[str, Any], tariff: Dict[s
 
 
 def weekly_analyzer_node(state: GraphState) -> GraphState:
-    """
-    Sedmični analizator - pokreće se periodično (npr. jednom dnevno)
-    
-    Analizira:
-    - 7-dnevnu statistiku po jedinici
-    - Detektuje sedmične anomalije
-    - Upišuje u anomalies_log sa category='weekly_report'
-    """
     try:
         building_id = state["building_id"]
         timestamp = state["timestamp"]
         
         with connect() as conn:
-            # Get all units
             units = conn.execute(
                 "SELECT unit_id FROM units WHERE building_id = ?",
                 (building_id,)
@@ -174,7 +155,6 @@ def weekly_analyzer_node(state: GraphState) -> GraphState:
                 
                 all_anomalies.extend(weekly_anomalies)
             
-            # Insert into DB
             insert_anomalies(conn, all_anomalies)
         
         state["weekly_report"] = {

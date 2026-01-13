@@ -13,20 +13,17 @@ from agents.decision import decision_node
 def build_graph():
     workflow = StateGraph(GraphState)
 
-    # Add nodes
     workflow.add_node("data_monitor", data_monitor_node)
     workflow.add_node("prediction", prediction_node)
     workflow.add_node("optimization", optimization_node)
     workflow.add_node("executive", decision_node)
 
-    # Define edges
     workflow.set_entry_point("data_monitor")
     workflow.add_edge("data_monitor", "prediction")
     workflow.add_edge("prediction", "optimization")
     workflow.add_edge("optimization", "executive")
     workflow.add_edge("executive", END)
 
-    # Compile
     return workflow.compile()
 
 

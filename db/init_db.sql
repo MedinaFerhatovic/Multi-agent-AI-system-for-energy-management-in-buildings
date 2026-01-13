@@ -1,33 +1,25 @@
 PRAGMA foreign_keys = ON;
 
--- =========================================================
 -- 0) LOCATIONS
--- =========================================================
 CREATE TABLE IF NOT EXISTS locations (
     location_id TEXT PRIMARY KEY,
     location_text TEXT NOT NULL,
     city TEXT NOT NULL,
     lat REAL,
     lon REAL,
-    timezone TEXT DEFAULT 'Europe/Sarajevo',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_unique
 ON locations(location_text);
 
-
--- =========================================================
 -- 1) BUILDINGS
--- =========================================================
 CREATE TABLE IF NOT EXISTS buildings (
     building_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
 
-    -- human-readable location (UI)
     location_text TEXT NOT NULL,
 
-    -- link to locations table
     location_id TEXT NOT NULL,
 
     floors_count INTEGER NOT NULL,
@@ -45,9 +37,7 @@ CREATE INDEX IF NOT EXISTS idx_buildings_location
 ON buildings(location_id);
 
 
--- =========================================================
--- 2) TARIFF MODEL (1 row per building)
--- =========================================================
+-- 2) TARIFF MODEL
 CREATE TABLE IF NOT EXISTS tariff_model (
     building_id TEXT PRIMARY KEY,
 
@@ -64,14 +54,12 @@ CREATE TABLE IF NOT EXISTS tariff_model (
     FOREIGN KEY(building_id) REFERENCES buildings(building_id)
 );
 
--- =========================================================
--- 3) UNITS (area in INTEGER m²)
--- =========================================================
+-- 3) UNITS 
 CREATE TABLE IF NOT EXISTS units (
     unit_id TEXT PRIMARY KEY,
     building_id TEXT NOT NULL,
 
-    unit_number TEXT NOT NULL,  -- e.g. 101, 102, 201...
+    unit_number TEXT NOT NULL,  
     floor INTEGER NOT NULL,
 
     area_m2_initial INTEGER,
@@ -96,10 +84,7 @@ CREATE TABLE IF NOT EXISTS units (
 CREATE INDEX IF NOT EXISTS idx_units_building
 ON units(building_id);
 
-
--- =========================================================
 -- 4) SENSORS
--- =========================================================
 CREATE TABLE IF NOT EXISTS sensors (
     sensor_id TEXT PRIMARY KEY,
     unit_id TEXT NOT NULL,
@@ -118,10 +103,7 @@ CREATE TABLE IF NOT EXISTS sensors (
 CREATE INDEX IF NOT EXISTS idx_sensors_unit
 ON sensors(unit_id);
 
-
--- =========================================================
 -- 5) SENSOR_READINGS (main timeseries)
--- =========================================================
 CREATE TABLE IF NOT EXISTS sensor_readings (
     reading_id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
@@ -150,19 +132,17 @@ CREATE INDEX IF NOT EXISTS idx_readings_building_time
 ON sensor_readings(building_id, timestamp);
 
 
--- =========================================================
 -- 6) EXTERNAL WEATHER (linked to location)
--- =========================================================
 CREATE TABLE IF NOT EXISTS external_weather (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
 
     location_id TEXT NOT NULL,
 
-    temp_external REAL NOT NULL,       -- °C (1 decimal)
-    wind_speed_kmh REAL NOT NULL,      -- km/h (1 decimal)
-    cloud_cover INTEGER NOT NULL,      -- % (0-100)
-    precipitation_mm REAL NOT NULL,    -- mm (2 decimals)
+    temp_external REAL NOT NULL,       -- °C 
+    wind_speed_kmh REAL NOT NULL,      -- km/h 
+    cloud_cover INTEGER NOT NULL,      -- % 
+    precipitation_mm REAL NOT NULL,    -- mm 
 
     forecast_hour INTEGER DEFAULT 0,   -- 0=current, >0 forecast
 
@@ -176,18 +156,14 @@ CREATE INDEX IF NOT EXISTS idx_weather_location_time
 ON external_weather(location_id, timestamp);
 
 
--- =========================================================
 -- 7) UNIT_FEATURES_DAILY
--- =========================================================
-
 CREATE TABLE IF NOT EXISTS unit_features_daily (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-    date TEXT NOT NULL,                 -- YYYY-MM-DD
+    date TEXT NOT NULL,                 
     building_id TEXT NOT NULL,
     unit_id TEXT NOT NULL,
 
-    -- Occupancy features (0..1, dimensionless)
     avg_occupancy_morning REAL,         -- 06:00-07:59
     avg_occupancy_daytime REAL,         -- 08:00-16:59
     avg_occupancy_evening REAL,         -- 17:00-21:59
@@ -204,10 +180,10 @@ CREATE TABLE IF NOT EXISTS unit_features_daily (
     peak_hour_morning INTEGER,          -- peak in 06..12
     peak_hour_evening INTEGER,          -- peak in 16..22
 
-    -- External temperature sensitivity (|Pearson r|, 0..1)
+    -- External temperature sensitivity 
     temp_sensitivity REAL,
 
-    -- Audit / definition (keep what you asked for)
+    -- Audit / definition 
     daytime_start_hour INTEGER NOT NULL DEFAULT 8,
     daytime_end_hour   INTEGER NOT NULL DEFAULT 17,
     night_start_hour   INTEGER NOT NULL DEFAULT 22,
@@ -228,9 +204,7 @@ CREATE INDEX IF NOT EXISTS idx_features_building_date
 ON unit_features_daily(building_id, date);
 
 
--- =========================================================
 -- 8) CLUSTERS
--- =========================================================
 CREATE TABLE IF NOT EXISTS clusters (
     cluster_id TEXT PRIMARY KEY,
     building_id TEXT NOT NULL,
@@ -241,10 +215,7 @@ CREATE TABLE IF NOT EXISTS clusters (
     FOREIGN KEY(building_id) REFERENCES buildings(building_id)
 );
 
-
--- =========================================================
 -- 9) UNIT_CLUSTER_ASSIGNMENT
--- =========================================================
 CREATE TABLE IF NOT EXISTS unit_cluster_assignment (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     building_id TEXT NOT NULL,
@@ -263,9 +234,7 @@ CREATE TABLE IF NOT EXISTS unit_cluster_assignment (
 );
 
 
--- =========================================================
 -- 10) PREDICTIONS
--- =========================================================
 CREATE TABLE IF NOT EXISTS predictions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp_created TEXT NOT NULL,
@@ -284,10 +253,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     FOREIGN KEY(unit_id) REFERENCES units(unit_id)
 );
 
-
--- =========================================================
 -- 11) OPTIMIZATION_PLANS
--- =========================================================
 CREATE TABLE IF NOT EXISTS optimization_plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
@@ -311,9 +277,7 @@ CREATE TABLE IF NOT EXISTS optimization_plans (
 );
 
 
--- =========================================================
 -- 12) DECISIONS_LOG
--- =========================================================
 CREATE TABLE IF NOT EXISTS decisions_log (
     decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
@@ -333,9 +297,7 @@ CREATE TABLE IF NOT EXISTS decisions_log (
 );
 
 
--- =========================================================
 -- 13) ANOMALIES_LOG
--- =========================================================
 CREATE TABLE IF NOT EXISTS anomalies_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
@@ -355,16 +317,17 @@ CREATE TABLE IF NOT EXISTS anomalies_log (
     FOREIGN KEY(sensor_id) REFERENCES sensors(sensor_id)
 );
 
+-- 14) MODEL_REGISTRY
 CREATE TABLE IF NOT EXISTS model_registry (
     model_id TEXT PRIMARY KEY,
-    model_scope TEXT NOT NULL,            -- 'global' ili 'building'
-    model_task TEXT NOT NULL,             -- 'consumption_forecast'
-    model_type TEXT NOT NULL,             -- 'random_forest' / 'gradient_boosting'
+    model_scope TEXT NOT NULL,            
+    model_task TEXT NOT NULL,            
+    model_type TEXT NOT NULL,             
     feature_version INTEGER NOT NULL,
-    trained_at TEXT NOT NULL,             -- ISO timestamp
-    file_path TEXT NOT NULL,              -- gdje je .pkl
-    metrics_json TEXT NOT NULL,           -- JSON string
-    is_active INTEGER NOT NULL DEFAULT 0  -- 1 aktivan, 0 neaktivan
+    trained_at TEXT NOT NULL,             
+    file_path TEXT NOT NULL,              
+    metrics_json TEXT NOT NULL,           
+    is_active INTEGER NOT NULL DEFAULT 0  
 );
 
 CREATE INDEX IF NOT EXISTS idx_model_registry_active
@@ -373,6 +336,7 @@ ON model_registry(is_active, model_task);
 CREATE INDEX IF NOT EXISTS idx_model_registry_scope
 ON model_registry(model_scope, model_task);
 
+-- 15) PIPELINE_PROGRESS
 CREATE TABLE IF NOT EXISTS pipeline_progress (
   pipeline_name TEXT NOT NULL,
   building_id   TEXT NOT NULL,
@@ -381,9 +345,7 @@ CREATE TABLE IF NOT EXISTS pipeline_progress (
   PRIMARY KEY (pipeline_name, building_id)
 );
 
--- =========================================================
--- 14) SYSTEM_VALIDATION_LOG
--- =========================================================
+-- 16) SYSTEM_VALIDATION_LOG
 CREATE TABLE IF NOT EXISTS system_validation_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
@@ -396,33 +358,24 @@ CREATE TABLE IF NOT EXISTS system_validation_log (
     reasons_json TEXT
 );
 
--- Add these indexes to your schema for better performance
-
--- Decisions log by building and time
 CREATE INDEX IF NOT EXISTS idx_decisions_building_time
 ON decisions_log(building_id, timestamp DESC);
 
--- Anomalies by building, unit, and severity
 CREATE INDEX IF NOT EXISTS idx_anomalies_severity
 ON anomalies_log(building_id, unit_id, severity, timestamp DESC);
 
--- Predictions by building and target time
 CREATE INDEX IF NOT EXISTS idx_predictions_target
 ON predictions(building_id, timestamp_target DESC);
 
--- Optimization plans by building and time
 CREATE INDEX IF NOT EXISTS idx_optim_plans_building_time
 ON optimization_plans(building_id, timestamp DESC);
 
--- Composite index for energy readings (most common query)
 CREATE INDEX IF NOT EXISTS idx_sr_energy_composite
 ON sensor_readings(sensor_type, quality_flag, building_id, unit_id, timestamp)
 WHERE sensor_type = 'energy' AND quality_flag = 'ok';
 
--- Units by building and floor (for UI/reporting)
 CREATE INDEX IF NOT EXISTS idx_units_building_floor
 ON units(building_id, floor);
 
--- System validation by building and status
 CREATE INDEX IF NOT EXISTS idx_validation_status
 ON system_validation_log(building_id, status, timestamp DESC);

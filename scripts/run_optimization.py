@@ -65,7 +65,7 @@ if __name__ == "__main__":
             print(" -", line)
         if state["errors"]:
             print("ERRORS:", state["errors"])
-            continue  # ne pomjeraj anchor ako fail
+            continue  
 
         with connect() as conn:
             next_anchor = step_anchor_back(conn, PIPELINE_NAME, bid, hours=STEP_HOURS)

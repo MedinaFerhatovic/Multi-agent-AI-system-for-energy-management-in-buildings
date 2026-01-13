@@ -1,5 +1,3 @@
-# utils/validators.py - ENHANCED VALIDATION
-
 from typing import Dict, Any, List, Tuple, Optional
 
 # Thresholds
@@ -205,7 +203,7 @@ def validate_prediction(
             "category": "data_quality",
         }
     
-    if pk > 10.0:  # 10 kWh per interval = 20 kW sustained
+    if pk > 10.0:  
         return False, {
             "timestamp": timestamp,
             "unit_id": unit_id,

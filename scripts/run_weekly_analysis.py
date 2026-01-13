@@ -1,10 +1,7 @@
-# scripts/run_weekly_analysis.py
-
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Import weekly analyzer
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -16,11 +13,8 @@ DB_PATH = BASE_DIR / "db" / "smartbuilding.db"
 
 
 def run_weekly_analysis(building_id: str):
-    """
-    Pokreće sedmični analizator za jednu zgradu
-    """
     print(f"\n{'='*60}")
-    print(f"🔍 WEEKLY ENERGY ANALYSIS - {building_id}")
+    print(f"WEEKLY ENERGY ANALYSIS - {building_id}")
     print(f"{'='*60}\n")
     
     # Pripremimo state
@@ -37,11 +31,9 @@ def run_weekly_analysis(building_id: str):
         "errors": [],
     }
     
-    # Pokreni weekly analyzer
     result_state = weekly_analyzer_node(state)
     
-    # Prikazi rezultate
-    print("\n📊 RESULTS:")
+    print("\nRESULTS:")
     print(f"  - Execution log: {len(result_state['execution_log'])} entries")
     
     for log_entry in result_state['execution_log']:
@@ -53,12 +45,12 @@ def run_weekly_analysis(building_id: str):
         print(f"  - Anomalies found: {report['anomalies_found']}")
     
     if result_state.get('errors'):
-        print(f"\n❌ ERRORS:")
+        print(f"\nERRORS:")
         for err in result_state['errors']:
             print(f"  - {err}")
     
     print(f"\n{'='*60}")
-    print("✅ Weekly analysis complete!")
+    print("Weekly analysis complete!")
     print(f"{'='*60}\n")
 
 

@@ -1,4 +1,3 @@
-# scripts/feature_extractor.py
 import sqlite3
 from datetime import datetime, timedelta, date
 import math
@@ -6,7 +5,6 @@ from typing import Optional, Tuple, List, Dict
 
 DEFAULT_DB_PATH = "db/smartbuilding.db"
 
-# Windows (non-overlapping, no gaps)
 MORNING_START = 6
 MORNING_END = 8          # 06:00-07:59
 
@@ -69,7 +67,7 @@ def hour_of(ts_str: str) -> int:
 
 def day_of_week(d: str) -> int:
     y, m, dd = map(int, d.split("-"))
-    return date(y, m, dd).weekday()  # 0=Mon .. 6=Sun
+    return date(y, m, dd).weekday()  
 
 
 def fetch_units(conn: sqlite3.Connection, building_id: str) -> List[str]:
@@ -120,7 +118,7 @@ def fetch_external_temp_for_day_by_location(conn: sqlite3.Connection, location_i
         if ts is None or t is None:
             continue
         ts = normalize_ts(ts)
-        out[ts[:13]] = float(t)  # YYYY-MM-DD HH
+        out[ts[:13]] = float(t)  
     return out
 
 
@@ -131,7 +129,6 @@ def avg_in_hours(series: List[Tuple[str, float]], start_h: int, end_h: int, wrap
     for ts, v in series:
         h = hour_of(ts)
         if wrap_night:
-            # night like 22..23 OR 0..5
             if h >= start_h or h <= end_h:
                 vals.append(v)
         else:
@@ -201,7 +198,6 @@ def compute_features(day: str, readings: Dict[str, List[Tuple[str, float]]], ext
         "peak_hour_morning": peak_morning,
         "peak_hour_evening": peak_evening,
         "temp_sensitivity": rround(temp_sens, ROUND_CORR),
-        # audit fields you requested (kept as originally asked)
         "daytime_start_hour": 8,
         "daytime_end_hour": 17,
         "night_start_hour": 22,

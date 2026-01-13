@@ -39,7 +39,6 @@ if __name__ == "__main__":
         buildings = get_all_building_ids(conn)
 
     for b in buildings:
-        # ✅ uzmi anchor iz progress (ako ne postoji, init na MAX(timestamp))
         with connect() as conn:
             anchor = get_or_init_anchor(conn, PIPELINE_NAME, b)
 
@@ -55,9 +54,8 @@ if __name__ == "__main__":
             print(" -", line)
         if state["errors"]:
             print("ERRORS:", state["errors"])
-            continue  # ne pomjeraj anchor ako je fail
+            continue  
 
-        # ✅ nakon uspješnog run-a pomjeri anchor 24h unazad za sljedeći put
         with connect() as conn:
             next_anchor = step_anchor_back(conn, PIPELINE_NAME, b, hours=STEP_HOURS)
 

@@ -1,4 +1,3 @@
-# tests/test_backtest.py
 import sqlite3
 import pickle
 from pathlib import Path
@@ -175,7 +174,6 @@ class TestModelBacktest(unittest.TestCase):
             self.assertTrue(all_true, "No evaluation points produced.")
             m = metrics(all_true, all_pred)
 
-            # Sim data should be reasonably predictable; thresholds are lenient.
             self.assertLess(m["mae"], 1.2, f"MAE too high: {m['mae']:.3f}")
             self.assertLess(m["rmse"], 1.8, f"RMSE too high: {m['rmse']:.3f}")
         finally:

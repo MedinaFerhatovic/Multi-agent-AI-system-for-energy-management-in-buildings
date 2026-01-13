@@ -1,4 +1,3 @@
-# agents/decision.py
 from __future__ import annotations
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -8,7 +7,7 @@ from workflow.state_schema import GraphState
 from utils.db_helper import connect, insert_decisions_rows, insert_validation_log
 
 
-# thresholds (možeš fino naštimati)
+# thresholds
 CONF_APPROVE_TH = 0.60
 OCC_HIGH_TH = 0.60
 MIN_COMFORT_TEMP = 19.0
@@ -17,10 +16,10 @@ MIN_COVERAGE = 0.60
 MAX_PRED_KWH = 10.0
 GLOBAL_BLOCK_RATIO = 0.40
 
-# 🆕 Energy alert thresholds
+# Energy alert thresholds
 ENERGY_SPIKE_EMERGENCY_TEMP = 18.0
-SUSTAINED_HIGH_TEMP_REDUCTION = 1.0  # °C smanjenje
-BUDGET_EXCEEDED_WARNING_ONLY = True  # samo loguj, ne mijenjaj akciju
+SUSTAINED_HIGH_TEMP_REDUCTION = 1.0  
+BUDGET_EXCEEDED_WARNING_ONLY = True  
 
 
 def _get_predicted_consumption(pred: Dict[str, Any]) -> float:
@@ -41,14 +40,9 @@ def _find_events(events: List[Dict[str, Any]], unit_id: str) -> List[Dict[str, A
 
 
 def _has_data_quality_block(events_unit: List[Dict[str, Any]]) -> bool:
-    """
-    Fail-safe: ako ima ozbiljan data_quality -> blokiraj automatiku.
-    Ovdje računamo da su validate_readings events data_quality.
-    """
     for e in events_unit:
         if e.get("category") == "data_quality" and e.get("severity") in ("high", "critical"):
             return True
-        # compatibility: stari validator event types
         if e.get("type") in ("energy_negative", "humidity_out_of_range", "occupancy_invalid") and e.get("severity") in ("high", "critical"):
             return True
     return False
@@ -61,9 +55,9 @@ def _get_temp_below_comfort_event(events_unit: List[Dict[str, Any]]) -> Optional
     return None
 
 
-# 🆕 Helper functions for energy alerts
+# Helper functions for energy alerts
 def _get_energy_spike_event(events_unit: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Pronađi energy_spike event"""
+    """ Find energy_spike event"""
     for e in events_unit:
         if e.get("type") == "energy_spike" and e.get("category") == "operational":
             return e
@@ -71,7 +65,7 @@ def _get_energy_spike_event(events_unit: List[Dict[str, Any]]) -> Optional[Dict[
 
 
 def _get_sustained_high_event(events_unit: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Pronađi sustained_high_consumption event"""
+    """Find sustained_high_consumption event"""
     for e in events_unit:
         if e.get("type") == "sustained_high_consumption" and e.get("category") == "operational":
             return e
@@ -79,7 +73,7 @@ def _get_sustained_high_event(events_unit: List[Dict[str, Any]]) -> Optional[Dic
 
 
 def _get_energy_waste_event(events_unit: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Pronađi energy_waste_rising event"""
+    """Find energy_waste_rising event"""
     for e in events_unit:
         if e.get("type") == "energy_waste_rising" and e.get("category") == "operational":
             return e
@@ -87,7 +81,7 @@ def _get_energy_waste_event(events_unit: List[Dict[str, Any]]) -> Optional[Dict[
 
 
 def _get_budget_exceeded_event(events_unit: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Pronađi daily_budget_exceeded event"""
+    """Find daily_budget_exceeded event"""
     for e in events_unit:
         if e.get("type") == "daily_budget_exceeded" and e.get("category") == "operational":
             return e
@@ -202,7 +196,7 @@ def decision_node(state: GraphState) -> GraphState:
     """
     try:
         building_id = state["building_id"]
-        anchor_ts = state["timestamp"]  # ✅ offline anchor (deterministic)
+        anchor_ts = state["timestamp"] 
 
         plans: Dict[str, Any] = state.get("optimization_plans") or {}
         preds: Dict[str, Any] = state.get("predictions") or {}
@@ -222,7 +216,7 @@ def decision_node(state: GraphState) -> GraphState:
         approved_cnt = 0
         blocked_cnt = 0
         overridden_cnt = 0
-        energy_alert_overrides = 0  # 🆕 Counter za energy alert overrides
+        energy_alert_overrides = 0  
 
         approve_th = CONF_APPROVE_TH if report.get("status") != "degraded" else max(CONF_APPROVE_TH, 0.75)
 
@@ -257,15 +251,9 @@ def decision_node(state: GraphState) -> GraphState:
                 approved = 1 if confidence >= approve_th else 0
                 reasoning_notes = [f"conf={confidence:.2f}", f"plan={plan_action}"]
 
-                # agents/decision.py - SIMPLIFIED ENERGY OVERRIDE SECTION
-
-                # =====================================================
-                # 4) ENERGY ALERT OVERRIDES (highest priority)
-                # =====================================================
-
                 energy_override_applied = False
 
-                # 4a) ENERGY SPIKE - Emergency action (HIGHEST PRIORITY)
+                # 4) ENERGY SPIKE - Emergency action (HIGHEST PRIORITY)
                 spike_event = _get_energy_spike_event(unit_events)
                 if spike_event:
                     spike_value = spike_event.get("value", 0)
@@ -276,9 +264,9 @@ def decision_node(state: GraphState) -> GraphState:
                     overridden_cnt += 1
                     energy_alert_overrides += 1
                     energy_override_applied = True
-                    reasoning_notes.append(f"🚨SPIKE:val={spike_value:.2f}kWh->temp={ENERGY_SPIKE_EMERGENCY_TEMP}°C")
+                    reasoning_notes.append(f"SPIKE:val={spike_value:.2f}kWh -> temp={ENERGY_SPIKE_EMERGENCY_TEMP}°C")
 
-                # 4b) SUSTAINED HIGH - Only if no spike
+                # 5) SUSTAINED HIGH - Only if no spike
                 if not energy_override_applied:
                     sustained_event = _get_sustained_high_event(unit_events)
                     if sustained_event:
@@ -294,9 +282,9 @@ def decision_node(state: GraphState) -> GraphState:
                             overridden_cnt += 1
                             energy_alert_overrides += 1
                             energy_override_applied = True
-                            reasoning_notes.append(f"⚠️SUSTAINED:24h={sustained_value:.2f}kWh,+{percent_increase}%->-{SUSTAINED_HIGH_TEMP_REDUCTION}°C")
+                            reasoning_notes.append(f"SUSTAINED: 24h={sustained_value:.2f}kWh, +{percent_increase}% -> -{SUSTAINED_HIGH_TEMP_REDUCTION}°C")
 
-                # 4c) ENERGY WASTE - Only if no higher priority override
+                # 6) ENERGY WASTE - Only if no higher priority override
                 if not energy_override_applied:
                     waste_event = _get_energy_waste_event(unit_events)
                     if waste_event:
@@ -310,20 +298,18 @@ def decision_node(state: GraphState) -> GraphState:
                             overridden_cnt += 1
                             energy_alert_overrides += 1
                             energy_override_applied = True
-                            reasoning_notes.append(f"⚠️WASTE:trend={waste_value:.2f}kWh->-0.5°C")
+                            reasoning_notes.append(f"WASTE: trend={waste_value:.2f}kWh -> -0.5°C")
 
-                # 4d) BUDGET EXCEEDED - Warning only (always log, doesn't block other actions)
+                # 7) BUDGET EXCEEDED - Warning only (always log, doesn't block other actions)
                 budget_event = _get_budget_exceeded_event(unit_events)
                 if budget_event:
                     details = budget_event.get("details", {})
                     daily_kwh = details.get("daily_consumption_kwh", 0)
                     overage = details.get("overage_kwh", 0)
                     cost = details.get("cost_estimate", 0)
-                    reasoning_notes.append(f"💰BUDGET:daily={daily_kwh:.1f}kWh,over={overage:.1f}kWh,cost={cost:.2f}BAM")
+                    reasoning_notes.append(f"BUDGET: daily={daily_kwh:.1f}kWh, over={overage:.1f}kWh,        cost={cost:.2f}BAM")
 
-                # =====================================================
-                # 5) Comfort override (only if no energy emergency)
-                # =====================================================
+                # Comfort override (only if no energy emergency)
                 if not energy_override_applied:
                     temp_ev = _get_temp_below_comfort_event(unit_events)
                     if temp_ev and target_temp is not None and target_temp < MIN_COMFORT_TEMP:
@@ -331,9 +317,9 @@ def decision_node(state: GraphState) -> GraphState:
                         action = "maintain_min_comfort"
                         approved = 1
                         overridden_cnt += 1
-                        reasoning_notes.append(f"🌡️COMFORT:temp={temp_ev.get('value')}°C->min={MIN_COMFORT_TEMP}°C")
+                        reasoning_notes.append(f"COMFORT: temp={temp_ev.get('value')}°C -> min={MIN_COMFORT_TEMP}°C")
 
-                # 6) Occupancy override (only if no energy emergency)
+                # Occupancy override (only if no energy emergency)
                 if not energy_override_applied:
                     occ_prob = plan.get("predicted_occupancy_prob", pred.get("predicted_occupancy_prob"))
                     occ_prob_f = None if occ_prob is None else float(occ_prob)
@@ -343,9 +329,9 @@ def decision_node(state: GraphState) -> GraphState:
                             action = "maintain_occupied"
                             approved = 1
                             overridden_cnt += 1
-                            reasoning_notes.append(f"👥OCC:prob={occ_prob_f:.2f}->temp=20°C")
+                            reasoning_notes.append(f"OCC: prob={occ_prob_f:.2f} -> temp=20°C")
 
-                # 7) If not approved -> fall back to maintain (safe)
+                # If not approved -> fall back to maintain (safe)
                 if approved == 0:
                     action = "maintain"
                     reasoning_notes.append("fallback:not_approved")
@@ -405,7 +391,7 @@ def decision_node(state: GraphState) -> GraphState:
         state["execution_log"].append(
             f"Decision(v2): anchor={anchor_ts} decisions={len(final_decisions)} "
             f"approved={approved_cnt} blocked={blocked_cnt} overridden={overridden_cnt} "
-            f"energy_overrides={energy_alert_overrides}"  # 🆕 Log energy overrides
+            f"energy_overrides={energy_alert_overrides}"  
         )
 
     except Exception as e:

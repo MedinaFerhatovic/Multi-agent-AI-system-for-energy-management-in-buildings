@@ -1,4 +1,3 @@
-# agents/prediction.py
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
@@ -10,7 +9,7 @@ from workflow.state_schema import GraphState
 from utils.db_helper import (
     connect,
     load_active_consumption_model,
-    fetch_recent_series_for_unit_asof,   # ✅ novo
+    fetch_recent_series_for_unit_asof,   
     insert_predictions_rows,
 )
 
@@ -98,7 +97,7 @@ def _occupancy_prob_from_recent(records: List[Dict[str, Any]], window_hours: int
 def prediction_node(state: GraphState) -> GraphState:
     try:
         building_id = state["building_id"]
-        anchor_ts = state["timestamp"]  # ✅ offline anchor (iz baze)
+        anchor_ts = state["timestamp"]  
 
         with connect() as conn:
             model_id, model, scaler, model_conf = load_active_consumption_model(conn)
@@ -108,7 +107,6 @@ def prediction_node(state: GraphState) -> GraphState:
             rows_to_insert: List[Dict[str, Any]] = []
 
             for unit_id in state["validated_data"].keys():
-                # ✅ historija do anchor_ts
                 records = fetch_recent_series_for_unit_asof(
                     conn, unit_id=unit_id, anchor_ts=anchor_ts, lookback=LOOKBACK
                 )
@@ -136,7 +134,6 @@ def prediction_node(state: GraphState) -> GraphState:
 
                 rows_to_insert.append(
                     {
-                        # ✅ deterministično: created = anchor
                         "timestamp_created": anchor_ts,
                         "timestamp_target": target_ts,
                         "building_id": building_id,

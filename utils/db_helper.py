@@ -1,4 +1,3 @@
-# utils/db_helper.py
 import sqlite3
 import json
 import pickle
@@ -11,10 +10,6 @@ DB_PATH = BASE_DIR / "db" / "smartbuilding.db"
 
 
 def connect(timeout: int = 30) -> sqlite3.Connection:
-    """
-    Central DB connection. Timeout helps avoid 'database is locked'.
-    WAL helps concurrency (multiple reads + writes).
-    """
     conn = sqlite3.connect(DB_PATH, timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON;")
@@ -32,14 +27,10 @@ def _safe_float(x: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
-# =========================================================
 # Agent 1 helpers
-# =========================================================
 def get_latest_readings(conn: sqlite3.Connection, building_id: str) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """
     Latest point per unit_id + sensor_type (one row per sensor type per unit).
-    Returns:
-      { unit_id: { sensor_type: {timestamp, value} } }
     """
     query = """
     WITH latest AS (
@@ -73,7 +64,7 @@ def get_recent_readings(
     building_id: str,
     sensor_types: list[str],
     lookback_hours: int,
-    anchor_ts: str,   # ISO string iz baze/state-a
+    anchor_ts: str,  
 ):
     placeholders = ",".join("?" for _ in sensor_types)
     query = f"""
@@ -125,8 +116,6 @@ def get_latest_readings_asof(conn, building_id: str, anchor_ts: str):
 def insert_anomalies(conn: sqlite3.Connection, anomalies: List[Dict[str, Any]]) -> None:
     """
     Insert anomalies into anomalies_log.
-    Expected anomaly keys:
-      timestamp, building_id, unit_id, type, value, severity, action
     """
     if not anomalies:
         return
@@ -154,18 +143,10 @@ def insert_anomalies(conn: sqlite3.Connection, anomalies: List[Dict[str, Any]]) 
     conn.commit()
 
 
-# =========================================================
 # Agent 2 helpers
-# =========================================================
 def load_active_consumption_model(conn: sqlite3.Connection) -> Tuple[str, Any, Any, float]:
     """
     Loads ACTIVE global consumption model from model_registry and disk.
-
-    Returns:
-      (model_id, model, scaler, confidence)
-
-    confidence:
-      tries to use metrics_json -> test.r2 (clamped 0..1), else 0.5
     """
     row = conn.execute(
         """
@@ -217,9 +198,6 @@ def fetch_recent_series_for_unit(
     """
     Fetch last N aligned records for a unit:
       energy + occupancy + area + weather
-
-    This matches what your global consumption model expects.
-    Returns list chronological (old -> new).
     """
     q = """
     SELECT
@@ -256,7 +234,7 @@ def fetch_recent_series_for_unit(
         return []
 
     out: List[Dict[str, Any]] = []
-    for r in reversed(rows):  # chronological
+    for r in reversed(rows):  
         out.append(
             {
                 "timestamp": r["timestamp"],
@@ -332,11 +310,6 @@ def fetch_recent_series_for_unit_asof(
 def insert_predictions_rows(conn: sqlite3.Connection, rows: List[Dict[str, Any]]) -> None:
     """
     Inserts rows into predictions table.
-
-    Expected keys:
-      timestamp_created, timestamp_target, building_id, unit_id,
-      predicted_consumption, predicted_occupancy_prob,
-      model_name, confidence
     """
     if not rows:
         return
@@ -367,9 +340,7 @@ def insert_predictions_rows(conn: sqlite3.Connection, rows: List[Dict[str, Any]]
     conn.commit()
 
 
-# =========================================================
 # Agent 3 helpers
-# =========================================================
 def get_unit_cluster(conn: sqlite3.Connection, building_id: str, unit_id: str) -> Optional[str]:
     """
     Returns latest cluster_id for unit (if clustering has been run).
@@ -438,7 +409,6 @@ def get_price_for_timestamp(tariff: Dict[str, Any], ts_iso: str) -> float:
     """
     dt = datetime.fromisoformat(ts_iso.replace("Z", ""))
 
-    # Sunday all-day low?
     if int(tariff.get("sunday_all_day_low", 1)) == 1 and dt.weekday() == 6:
         return float(tariff["low_price_per_kwh"])
 
@@ -446,7 +416,6 @@ def get_price_for_timestamp(tariff: Dict[str, Any], ts_iso: str) -> float:
     end = _time_to_minutes(tariff["low_tariff_end"])
     cur = dt.hour * 60 + dt.minute
 
-    # wrap case (start > end)
     if start <= end:
         is_low = start <= cur < end
     else:
@@ -458,13 +427,6 @@ def get_price_for_timestamp(tariff: Dict[str, Any], ts_iso: str) -> float:
 def insert_optimization_plans(conn: sqlite3.Connection, rows: List[Dict[str, Any]]) -> None:
     """
     Bulk insert into optimization_plans table.
-
-    Expected keys:
-      timestamp, building_id, unit_id,
-      action_type, target_temp,
-      start_time, end_time,
-      estimated_cost, estimated_savings,
-      method (optional)
     """
     if not rows:
         return

@@ -4,18 +4,16 @@ import random
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# ---------------------------
+
 # CONFIG
-# ---------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "db" / "smartbuilding.db"
 
 INTERVAL_MINUTES = 30
 DAYS_BACK = 20
 
-# ---------------------------
+
 # HELPERS
-# ---------------------------
 def iso(dt):
     return dt.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -23,18 +21,12 @@ def insulation_factor(level):
     return {"poor": 1.25, "average": 1.0, "good": 0.75}.get(level, 1.0)
 
 def ext_temp_for_time(dt, base=4.0, amp=6.0):
-    """External temperature °C - rounded to 1 decimal"""
     hour = dt.hour + dt.minute / 60
     phase = (hour - 5) / 24 * 2 * math.pi
     temp = base + amp * math.sin(phase) + random.gauss(0, 0.7)
     return round(temp, 1)
 
 def wind_cloud_precip():
-    """Weather as API-like values:
-    - wind_speed_kmh: 0.1 precision
-    - cloud_cover: int percent
-    - precipitation_mm: 0.01 precision
-    """
     wind_ms = max(0, random.gauss(3.5, 1.2))
     wind_kmh = round(wind_ms * 3.6, 1)  # km/h
 
@@ -61,11 +53,6 @@ def pick_profile(profiles):
     return random.choices(profiles, weights=[weights.get(p, 0.2) for p in profiles], k=1)[0]
 
 def generate_unit_numbers(floors, units_total):
-    """
-    Generates apartment-like unit numbers by floor:
-    Floor 1: 101, 102 ...
-    Floor 2: 201, 202 ...
-    """
     unit_numbers = []
     units_per_floor = math.ceil(units_total / floors)
 
@@ -79,9 +66,6 @@ def generate_unit_numbers(floors, units_total):
     return unit_numbers
 
 def sample_area_from_distribution(dist):
-    """
-    Generate area_m2_initial as INTEGER (no decimals).
-    """
     categories = ["small", "medium", "large"]
     weights = [dist["small_pct"], dist["medium_pct"], dist["large_pct"]]
     choice = random.choices(categories, weights=weights, k=1)[0]
@@ -92,9 +76,8 @@ def sample_area_from_distribution(dist):
         return int(round(max(30, random.gauss(dist["medium_avg"], 6))))
     return int(round(max(45, random.gauss(dist["large_avg"], 10))))
 
-# ---------------------------
+
 # OCCUPANCY + LOADS
-# ---------------------------
 def occupancy_probability(profile, dt):
     dow = dt.weekday()
     hour = dt.hour + dt.minute / 60
@@ -170,15 +153,12 @@ def heating_kwh_needed(t_internal, t_target, profile):
     return 0.0
 
 def humidity_for_time(dt, occ):
-    """Humidity realistic % (as sensor value)"""
     base = 45 + (10 if occ > 0.5 else 0)
     daily_wave = 5 * math.sin((dt.hour / 24) * 2 * math.pi)
     hum = base + daily_wave + random.gauss(0, 4)
     return round(min(80, max(25, hum)), 1)
 
-# ---------------------------
 # LOCATION + WEATHER SEED
-# ---------------------------
 def seed_locations(conn):
     cur = conn.cursor()
 
@@ -215,29 +195,24 @@ def seed_weather_for_location(conn, location_id, start_dt, end_dt):
 
     conn.commit()
 
-# ---------------------------
 # BUILDING SEED (tariff_model + units + sensors + sensor_readings)
-# ---------------------------
 def simulate_building(conn, building_id, name, location_id, floors, units_total,
                       building_type, insulation_level, area_distribution,
                       start_dt, end_dt, interval_minutes=15):
 
     cur = conn.cursor()
 
-    # get location_text for building
     location_text = cur.execute(
         "SELECT location_text FROM locations WHERE location_id=?",
         (location_id,)
     ).fetchone()[0]
 
-    # Insert building
     cur.execute("""
         INSERT OR REPLACE INTO buildings
         (building_id, name, location_text, floors_count, units_total, building_type, insulation_level, location_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (building_id, name, location_text, floors, units_total, building_type, insulation_level, location_id))
 
-    # Insert tariff model (one row per building)
     cur.execute("""
         INSERT OR REPLACE INTO tariff_model
         (building_id, low_tariff_start, low_tariff_end, low_price_per_kwh, high_price_per_kwh, sunday_all_day_low, currency)
@@ -247,7 +222,6 @@ def simulate_building(conn, building_id, name, location_id, floors, units_total,
     profiles = build_profiles(building_type)
     unit_numbers = generate_unit_numbers(floors, units_total)
 
-    # Create units + sensors
     units = []
     for unit_number in unit_numbers:
         floor = int(unit_number) // 100
@@ -271,7 +245,6 @@ def simulate_building(conn, building_id, name, location_id, floors, units_total,
             "user_avg_distribution", 0.0
         ))
 
-        # Sensors per unit
         has_occupancy = random.random() < (0.75 if building_type != "commercial" else 0.55)
         sensor_types = ["energy", "temp_internal", "humidity"]
         if has_occupancy:
@@ -290,7 +263,6 @@ def simulate_building(conn, building_id, name, location_id, floors, units_total,
 
     conn.commit()
 
-    # Internal temps
     t_int = {u[0]: random.gauss(20.5, 1.0) for u in units}
     ins_factor = insulation_factor(insulation_level)
 
@@ -299,14 +271,12 @@ def simulate_building(conn, building_id, name, location_id, floors, units_total,
 
     readings_rows = []
 
-    # Pre-load which units have occupancy sensor
     occ_sensor_units = set(
         r[0] for r in cur.execute("SELECT unit_id FROM sensors WHERE sensor_type='occupancy'").fetchall()
     )
 
     while dt <= end_dt:
 
-        # lookup external temp from external_weather (location_id)
         t_ext_row = cur.execute("""
             SELECT temp_external
             FROM external_weather
@@ -322,7 +292,6 @@ def simulate_building(conn, building_id, name, location_id, floors, units_total,
 
             humidity = humidity_for_time(dt, occ)
 
-            # Target temperature
             if profile in ("res_stable", "res_variable"):
                 t_target = 21.0 if occ > 0.5 else 19.0
             elif profile == "daytime_only":
@@ -332,7 +301,6 @@ def simulate_building(conn, building_id, name, location_id, floors, units_total,
             else:
                 t_target = 14.0
 
-            # Heat loss depends on area too
             area_factor = min(1.4, max(0.7, area_initial / 60.0))
             heat_loss = (t_int[unit_id] - t_ext) * 0.06 * ins_factor * area_factor * interval_h
 
@@ -347,18 +315,15 @@ def simulate_building(conn, building_id, name, location_id, floors, units_total,
             devices = devices_load_kwh(profile, occ) * interval_h
             total_kwh = base + devices + heat_kwh
 
-            # sensor_readings rows
             readings_rows.append((iso(dt), building_id, unit_id, "energy", round(total_kwh, 3), None, "ok", "simulated"))
             readings_rows.append((iso(dt), building_id, unit_id, "temp_internal", round(t_int[unit_id], 1), None, "ok", "simulated"))
             readings_rows.append((iso(dt), building_id, unit_id, "humidity", humidity, None, "ok", "simulated"))
 
-            # only if occupancy exists
             if unit_id in occ_sensor_units:
                 readings_rows.append((iso(dt), building_id, unit_id, "occupancy", occ, None, "ok", "simulated"))
 
         dt += timedelta(minutes=interval_minutes)
 
-    # Insert sensor_readings
     cur.executemany("""
         INSERT INTO sensor_readings
         (timestamp, building_id, unit_id, sensor_type, value, value2, quality_flag, source)
@@ -367,12 +332,10 @@ def simulate_building(conn, building_id, name, location_id, floors, units_total,
 
     conn.commit()
 
-# ---------------------------
 # MAIN
-# ---------------------------
 if __name__ == "__main__":
     if not DB_PATH.exists():
-        print(f"❌ Ne mogu pronaći bazu: {DB_PATH}")
+        print(f"No database: {DB_PATH}")
         exit(1)
 
     conn = sqlite3.connect(DB_PATH, timeout=30)
@@ -383,14 +346,11 @@ if __name__ == "__main__":
     end_dt = datetime(2026, 1, 10, 23, 45)
     start_dt = end_dt - timedelta(days=DAYS_BACK)
 
-    # 1) seed locations
     seed_locations(conn)
 
-    # 2) seed weather for each location
     seed_weather_for_location(conn, "LOC_SA", start_dt, end_dt)
     seed_weather_for_location(conn, "LOC_ZE", start_dt, end_dt)
 
-    # 3) area distributions
     building1_area_dist = {
         "small_avg": 35, "medium_avg": 55, "large_avg": 85,
         "small_pct": 40, "medium_pct": 45, "large_pct": 15
@@ -401,7 +361,7 @@ if __name__ == "__main__":
         "small_pct": 50, "medium_pct": 35, "large_pct": 15
     }
 
-    # 4) simulate buildings (includes tariff_model + units + sensors + sensor_readings)
+    # simulate buildings (includes tariff_model + units + sensors + sensor_readings)
     simulate_building(
         conn,
         building_id="B001",
@@ -434,6 +394,6 @@ if __name__ == "__main__":
 
     conn.close()
 
-    print("✅ Seed završio!")
-    print("✅ Popunjene tabele: locations, buildings, tariff_model, units, sensors, external_weather, sensor_readings")
-    print(f"📌 Database: {DB_PATH}")
+    print("Finished!")
+    print("Tables: locations, buildings, tariff_model, units, sensors, external_weather, sensor_readings")
+    print(f"Database: {DB_PATH}")

@@ -1,4 +1,3 @@
-# scripts/clustering.py
 import sqlite3
 import numpy as np
 from datetime import datetime
@@ -13,7 +12,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "db" / "smartbuilding.db"
 
 def fetch_features_for_clustering(conn, building_id):
-    """Извлачи фичове за кластеровање"""
     query = """
     SELECT 
         unit_id,
@@ -42,7 +40,6 @@ def fetch_features_for_clustering(conn, building_id):
     features = []
     
     for r in rows:
-        # Ako su NULL vrijednosti, zamijeni sa 0
         feat = [
             r[1] if r[1] is not None else 0.0,  # avg_occ_morning
             r[2] if r[2] is not None else 0.0,  # avg_occ_day
@@ -59,7 +56,7 @@ def fetch_features_for_clustering(conn, building_id):
 
 
 def determine_optimal_clusters(X, max_k=6):
-    """Određuje optimalan broj klastera koristeći Elbow metodu"""
+    """Optimal number of clusters - Elbow method"""
     if len(X) < 3:
         return 2
     
@@ -71,7 +68,6 @@ def determine_optimal_clusters(X, max_k=6):
         kmeans.fit(X)
         inertias.append(kmeans.inertia_)
     
-    # Pronađi "lakat" - najveću razliku
     diffs = np.diff(inertias)
     optimal_k = np.argmin(diffs) + 2
     
@@ -79,41 +75,36 @@ def determine_optimal_clusters(X, max_k=6):
 
 
 def perform_clustering(conn, building_id, n_clusters=None):
-    """Glavni clustering proces"""
     print(f"\n{'='*60}")
-    print(f"🔍 CLUSTERING for building: {building_id}")
+    print(f"CLUSTERING for building: {building_id}")
     print(f"{'='*60}")
     
-    # 1. Fetch features
     unit_ids, features = fetch_features_for_clustering(conn, building_id)
     
     if features is None or len(features) < 3:
         print("[ERROR] Not enough data for clustering (need at least 3 units)")
         return
     
-    print(f"✅ Loaded {len(unit_ids)} units with features")
+    print(f"Loaded {len(unit_ids)} units with features")
     
-    # 2. Normalizuj features
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
     
-    # 3. Odredi broj klastera ako nije specificiran
     if n_clusters is None:
         n_clusters = determine_optimal_clusters(features_scaled)
     
-    print(f"📊 Using {n_clusters} clusters")
+    print(f"Using {n_clusters} clusters")
     
-    # 4. Primijeni KMeans
+    # KMeans
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     labels = kmeans.fit_predict(features_scaled)
     
-    # 5. PCA za 2D vizualizaciju (opciono, za provjeru)
+    # 5. PCA for 2D visualisation 
     pca = PCA(n_components=2)
     features_2d = pca.fit_transform(features_scaled)
     
-    print(f"📈 PCA explained variance: {pca.explained_variance_ratio_.sum():.2%}")
+    print(f"PCA explained variance: {pca.explained_variance_ratio_.sum():.2%}")
     
-    # 6. Kreiraj cluster imena
     cluster_names = {
         0: "High Activity",
         1: "Medium Activity", 
@@ -123,14 +114,11 @@ def perform_clustering(conn, building_id, n_clusters=None):
         5: "Commercial Hours"
     }
     
-    # 7. Pohrani rezultate u bazu
     timestamp = datetime.utcnow().isoformat() + "Z"
     
-    # Prvo obriši stare clustere za ovo zdanje
     conn.execute("DELETE FROM clusters WHERE building_id = ?", (building_id,))
     conn.execute("DELETE FROM unit_cluster_assignment WHERE building_id = ?", (building_id,))
     
-    # Kreiraj nove clustere
     for cluster_id in range(n_clusters):
         cluster_name = cluster_names.get(cluster_id, f"Cluster {cluster_id}")
         
@@ -145,14 +133,12 @@ def perform_clustering(conn, building_id, n_clusters=None):
             timestamp
         ))
     
-    # Assign units to clusters
     for unit_id, cluster_label in zip(unit_ids, labels):
         cluster_id = f"{building_id}_C{cluster_label}"
         
-        # Izračunaj confidence (distance to centroid)
         unit_idx = unit_ids.index(unit_id)
         distance = np.linalg.norm(features_scaled[unit_idx] - kmeans.cluster_centers_[cluster_label])
-        confidence = max(0.0, 1.0 - (distance / 3.0))  # normalize to 0-1
+        confidence = max(0.0, 1.0 - (distance / 3.0)) 
         
         conn.execute("""
             INSERT INTO unit_cluster_assignment 
@@ -169,16 +155,15 @@ def perform_clustering(conn, building_id, n_clusters=None):
     
     conn.commit()
     
-    # 8. Prikaži rezultate
     print(f"\n{'='*60}")
-    print("📋 CLUSTERING RESULTS")
+    print("CLUSTERING RESULTS")
     print(f"{'='*60}")
     
     for cluster_id in range(n_clusters):
         cluster_units = [u for u, l in zip(unit_ids, labels) if l == cluster_id]
         cluster_name = cluster_names.get(cluster_id, f"Cluster {cluster_id}")
         
-        print(f"\n🏷️  {cluster_name} ({len(cluster_units)} units)")
+        print(f"\n  {cluster_name} ({len(cluster_units)} units)")
         print(f"   Units: {', '.join([u.split('_')[-1] for u in cluster_units[:5]])}", end="")
         if len(cluster_units) > 5:
             print(f" ... (+{len(cluster_units)-5} more)")
@@ -186,12 +171,11 @@ def perform_clustering(conn, building_id, n_clusters=None):
             print()
     
     print(f"\n{'='*60}")
-    print("✅ Clustering completed successfully!")
+    print(" Clustering completed successfully!")
     print(f"{'='*60}\n")
 
 
 def run(db_path, building_id, n_clusters=None):
-    """Entry point"""
     conn = sqlite3.connect(db_path)
     try:
         perform_clustering(conn, building_id, n_clusters)

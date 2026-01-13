@@ -1,4 +1,3 @@
-# scripts/run_full_backfill.py
 import sys
 from pathlib import Path
 

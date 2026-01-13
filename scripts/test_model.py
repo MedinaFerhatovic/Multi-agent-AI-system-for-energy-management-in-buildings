@@ -1,4 +1,3 @@
-# scripts/test_model.py
 import sqlite3
 import pickle
 import json
@@ -56,8 +55,6 @@ def load_active_model(conn: sqlite3.Connection):
 
 
 def fetch_unit_energy_series(conn: sqlite3.Connection, unit_id: str):
-    # fetch energy + occupancy + weather aligned by timestamp (30-min)
-    # we join buildings to get location_id for weather
     q = """
     SELECT
         sr.timestamp,
@@ -90,7 +87,6 @@ def fetch_unit_energy_series(conn: sqlite3.Connection, unit_id: str):
     if not rows:
         return []
 
-    # dedup by timestamp defensively (in case joins create duplicates)
     by_ts = {}
     for r in rows:
         ts, building_id, unit_id, energy, occ, area, t_ext, wind, cloud = r
@@ -159,7 +155,6 @@ def metrics(y_true, y_pred):
     y_pred = np.array(y_pred, dtype=float)
     mae = float(np.mean(np.abs(y_true - y_pred)))
     rmse = float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
-    # R2 manual (avoid sklearn import)
     ss_res = float(np.sum((y_true - y_pred) ** 2))
     ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
     r2 = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
@@ -167,7 +162,6 @@ def metrics(y_true, y_pred):
 
 
 def write_csv(path: Path, rows: list):
-    # minimal CSV writer (no pandas)
     import csv
     if not rows:
         return
@@ -183,7 +177,7 @@ def main():
 
     model_id, model_file, model, scaler, registry_metrics, trained_at = load_active_model(conn)
     print("=" * 80)
-    print("🧪 MODEL TEST")
+    print("MODEL TEST")
     print("=" * 80)
     print(f"Active model_id : {model_id}")
     print(f"Model file      : {model_file}")
@@ -191,7 +185,6 @@ def main():
     print("Registry metrics (summary keys):", list(registry_metrics.keys()))
     print("-" * 80)
 
-    # pick a few units to test: 2 from each building (or as many as exist)
     unit_rows = conn.execute("""
         SELECT DISTINCT unit_id, building_id
         FROM units
@@ -202,7 +195,6 @@ def main():
         print("[ERROR] No units found.")
         return
 
-    # choose up to 6 units
     chosen = []
     by_building = defaultdict(list)
     for unit_id, building_id in unit_rows:
@@ -212,7 +204,7 @@ def main():
         chosen.extend(units[:3])
 
     chosen = chosen[:6]
-    print(f"🔎 Testing units: {chosen}")
+    print(f"Testing units: {chosen}")
     print("-" * 80)
 
     all_true = []
@@ -225,7 +217,6 @@ def main():
             continue
 
         # take last N points for evaluation
-        # we evaluate the last 7 days approx => 7*48=336 (if available)
         N = min(336, len(records) - LOOKBACK - HORIZON)
         start_idx = len(records) - N
 
@@ -235,7 +226,6 @@ def main():
         export_rows = []
 
         for idx in range(start_idx, len(records)):
-            # need history window
             if idx < LOOKBACK:
                 continue
 
@@ -260,12 +250,11 @@ def main():
             })
 
         m = metrics(y_true, y_pred)
-        print(f"✅ {unit_id}: MAE={m['mae']:.4f} RMSE={m['rmse']:.4f} R²={m['r2']:.4f} (n={len(y_true)})")
+        print(f"{unit_id}: MAE={m['mae']:.4f} RMSE={m['rmse']:.4f} R²={m['r2']:.4f} (n={len(y_true)})")
 
-        # save CSV per unit
         out = EXPORT_DIR / f"pred_vs_actual_{unit_id}.csv"
         write_csv(out, export_rows)
-        print(f"   ↳ CSV saved: {out}")
+        print(f"CSV saved: {out}")
 
         all_true.extend(y_true)
         all_pred.extend(y_pred)
@@ -273,8 +262,8 @@ def main():
     if all_true:
         m_all = metrics(all_true, all_pred)
         print("-" * 80)
-        print(f"📌 Overall (chosen units): MAE={m_all['mae']:.4f} RMSE={m_all['rmse']:.4f} R²={m_all['r2']:.4f} (n={len(all_true)})")
-        print(f"📁 Exports folder: {EXPORT_DIR}")
+        print(f"Overall (chosen units): MAE={m_all['mae']:.4f} RMSE={m_all['rmse']:.4f} R²={m_all['r2']:.4f} (n={len(all_true)})")
+        print(f"Exports folder: {EXPORT_DIR}")
     else:
         print("[ERROR] No evaluation points produced.")
 

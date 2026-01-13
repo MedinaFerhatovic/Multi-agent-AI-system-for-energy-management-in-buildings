@@ -1,4 +1,3 @@
-# agents/data_monitor.py
 from __future__ import annotations
 
 from typing import Dict, Any, List, Tuple, Optional
@@ -16,11 +15,9 @@ from utils.db_helper import (
 from utils.validators import validate_readings
 
 
-# -----------------------
 # small helpers
-# -----------------------
+
 def _parse_hour_min(ts: str) -> Tuple[int, int]:
-    # works with "YYYY-MM-DDTHH:MM:SSZ" and "YYYY-MM-DD HH:MM:SS"
     if "T" in ts:
         hh = int(ts[11:13])
         mm = int(ts[14:16])
@@ -35,7 +32,7 @@ def _is_sunday(ts: str) -> bool:
     m = int(ts[5:7])
     d = int(ts[8:10])
     import datetime as _dt
-    return _dt.date(y, m, d).weekday() == 6  # Sunday
+    return _dt.date(y, m, d).weekday() == 6  
 
 
 def _is_low_tariff(ts: str, tariff: Dict[str, Any]) -> bool:
@@ -53,7 +50,6 @@ def _is_low_tariff(ts: str, tariff: Dict[str, Any]) -> bool:
     start = sh * 60 + sm
     end = eh * 60 + em
 
-    # wrap window (22:00 -> 06:00)
     if start > end:
         return (cur >= start) or (cur < end)
     return start <= cur < end
@@ -78,14 +74,6 @@ def _energy_events_for_unit(
     latest_energy: Optional[Dict[str, Any]],
     tariff: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-    """
-    Energy-focused operational events:
-      - energy_spike (ADJUSTED: smanjeni pragovi)
-      - high_energy_unoccupied
-      - high_cost_now
-      - NEW: sustained_high_consumption (24h prosjek prevelik)
-      - NEW: energy_waste_alert (raste bez razloga)
-    """
     events: List[Dict[str, Any]] = []
     if not latest_energy or "timestamp" not in latest_energy or "value" not in latest_energy:
         return events
@@ -97,26 +85,24 @@ def _energy_events_for_unit(
     e_avg = _avg(e_vals)
     e_std = _std(e_vals)
 
-    # agents/data_monitor.py - TUNED ENERGY THRESHOLDS
 
-    # =========================================================
-    # 1) ENERGY SPIKE - Dva nivoa detekcije
-    # =========================================================
+    # 1) ENERGY SPIKE 
+    
     if e_avg is not None and e_avg > 0:
         spike_severity = None
         threshold_desc = None
         
         if e_std is not None and e_std > 0:
-            # CRITICAL: 2.5 std (rijetko, ali ozbiljno)
+            # CRITICAL: 2.5 std 
             if v_latest > (e_avg + 2.5 * e_std):
                 spike_severity = "critical"
                 threshold_desc = "avg+2.5std"
-            # HIGH: 1.8 std (češće, ali značajno)
+            # HIGH: 1.8 std 
             elif v_latest > (e_avg + 1.8 * e_std):
                 spike_severity = "high"
                 threshold_desc = "avg+1.8std"
         else:
-            # Bez std: jednostavna 2x provjera
+            # Without std: 
             if v_latest > 2.2 * e_avg:
                 spike_severity = "high"
                 threshold_desc = "2.2x_avg"
@@ -138,9 +124,8 @@ def _energy_events_for_unit(
                 },
             })
 
-    # =========================================================
-    # 2) HIGH ENERGY WHILE UNOCCUPIED - Dva nivoa
-    # =========================================================
+    # 2) HIGH ENERGY WHILE UNOCCUPIED 
+    
     occ_map = {ts: float(v) for ts, v in (series_occ or [])}
     unocc_vals: List[float] = []
     for ts, ev in (series_energy or []):
@@ -166,7 +151,6 @@ def _energy_events_for_unit(
                 severity = "high"
                 threshold_desc = f"1.7x_unocc_avg({unocc_avg:.2f})"
         elif unocc_avg is None and v_latest > 0.35:
-            # Nema historije, ali potrošnja sumnjiva
             severity = "medium"
             threshold_desc = "no_history>0.35"
         
@@ -185,9 +169,8 @@ def _energy_events_for_unit(
                 },
             })
 
-    # =========================================================
-    # 3) HIGH COST NOW - Smanjen prag sa 1.3 na 1.2
-    # =========================================================
+    # 3) HIGH COST NOW 
+    
     low = _is_low_tariff(ts_latest, tariff)
     price = float(tariff["low_price_per_kwh"] if low else tariff["high_price_per_kwh"])
     est_cost = v_latest * price
@@ -209,9 +192,8 @@ def _energy_events_for_unit(
             },
         })
 
-    # =========================================================
-    # 4) SUSTAINED HIGH - Smanjen prag sa 1.3 na 1.25
-    # =========================================================
+    # 4) SUSTAINED HIGH 
+    
     if e_avg is not None and len(e_vals) >= 48:
         last_24h = e_vals[-48:]
         avg_24h = _avg(last_24h)
@@ -237,9 +219,7 @@ def _energy_events_for_unit(
                 },
             })
 
-    # =========================================================
-    # 5) ENERGY WASTE - Isti prag (OK)
-    # =========================================================
+    # 5) ENERGY WASTE 
     if len(series_energy) >= 4 and len(series_occ) >= 4:
         last_4_energy = [float(v) for _, v in series_energy[-4:]]
         last_4_occ = [float(v) for _, v in series_occ[-4:]]
@@ -263,11 +243,8 @@ def _energy_events_for_unit(
                 },
             })
 
-    # =========================================================
-    # 6) DAILY BUDGET - Realistična postavka
-    # =========================================================
-    # Preporučujem da ovo čitaš iz cluster karakteristika ili unit metadata
-    # Za sada: 12 kWh dnevno za prosječan stan (0.5 kWh/h * 24h)
+    # 6) DAILY BUDGET 
+    
     daily_budget_kwh = 12.0
     
     if len(e_vals) >= 48:
@@ -293,14 +270,10 @@ def _energy_events_for_unit(
 
     return events
 
-
-# -----------------------
-# main node
-# -----------------------
 def data_monitor_node(state: GraphState) -> GraphState:
     """
     Offline monitoring:
-      - anchor_ts = state['timestamp'] (MAX timestamp iz DB u runneru)
+      - anchor_ts = state['timestamp'] (MAX timestamp from DB in runner)
       - latest readings asof anchor
       - validate_readings -> (validated, base_events)
       - recent 24h window -> energy events
@@ -314,7 +287,6 @@ def data_monitor_node(state: GraphState) -> GraphState:
         with connect() as conn:
             raw_latest = get_latest_readings_asof(conn, building_id, anchor_ts)
 
-            # IMPORTANT: validate_readings must return (validated, events)
             validated, base_events = validate_readings(raw_latest)
 
             recent = get_recent_readings(
@@ -325,7 +297,6 @@ def data_monitor_node(state: GraphState) -> GraphState:
                 anchor_ts=anchor_ts,
             )
 
-            # debug counters
             units_with_energy = sum(1 for u in raw_latest if "energy" in raw_latest[u])
             state["execution_log"].append(
                 f"Energy(latest): units_with_energy={units_with_energy}/{len(raw_latest)} anchor_ts={anchor_ts}"
@@ -338,7 +309,6 @@ def data_monitor_node(state: GraphState) -> GraphState:
 
             tariff = get_tariff_for_building(conn, building_id)
 
-            # build energy events per unit
             energy_events: List[Dict[str, Any]] = []
             for unit_id, sensors in raw_latest.items():
                 latest_energy = sensors.get("energy")
@@ -354,7 +324,6 @@ def data_monitor_node(state: GraphState) -> GraphState:
                     )
                 )
 
-            # merge + attach building_id + sensor_id
             all_events = (base_events or []) + (energy_events or [])
             for ev in all_events:
                 ev["building_id"] = building_id

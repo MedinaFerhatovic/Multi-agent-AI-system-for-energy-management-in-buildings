@@ -1,4 +1,3 @@
-# scripts/train_models.py
 import sqlite3
 import numpy as np
 import pickle
@@ -19,9 +18,8 @@ MODELS_DIR.mkdir(exist_ok=True)
 
 FEATURE_VERSION = 3
 
-# LOGGING
 LOG_EVERY_ROWS = 10000       # print progress every N fetched rows
-FETCHMANY_SIZE = 5000        # fetch rows in chunks so you see progress
+FETCHMANY_SIZE = 5000        # fetch rows in chunks 
 
 
 def ts():
@@ -48,11 +46,7 @@ def ensure_model_registry(conn: sqlite3.Connection):
 
 
 def ensure_indexes(conn: sqlite3.Connection):
-    """
-    Indexes that make the fetch JOINs fast.
-    Safe to run multiple times.
-    """
-    print(f"[{ts()}] 🧱 Ensuring indexes...")
+    print(f"[{ts()}] Ensuring indexes...")
     conn.executescript("""
     CREATE INDEX IF NOT EXISTS idx_sr_main
       ON sensor_readings(sensor_type, quality_flag, building_id, unit_id, timestamp);
@@ -80,14 +74,11 @@ def quick_counts(conn: sqlite3.Connection):
     e = conn.execute(q1).fetchone()[0]
     o = conn.execute(q2).fetchone()[0]
     w = conn.execute(q3).fetchone()[0]
-    print(f"[{ts()}] 📊 Counts: energy_ok={e} occupancy_ok={o} external_weather={w}")
+    print(f"[{ts()}] Counts: energy_ok={e} occupancy_ok={o} external_weather={w}")
 
 
 def profile_fetch_query(conn: sqlite3.Connection):
-    """
-    Runs small LIMIT queries to identify which JOIN is slow.
-    """
-    print(f"[{ts()}] 🧪 Profiling JOINs with LIMIT 10...")
+    print(f"[{ts()}] Profiling JOINs with LIMIT 10...")
 
     tests = [
         ("energy only",
@@ -152,11 +143,6 @@ def profile_fetch_query(conn: sqlite3.Connection):
 
 
 def fetch_global_timeseries(conn: sqlite3.Connection):
-    """
-    Same query as before but:
-      - NO datetime() wrappers (since timestamps align at 30-min)
-      - fetchmany() + progress logs
-    """
     query = """
     SELECT
         sr.timestamp,
@@ -192,7 +178,7 @@ def fetch_global_timeseries(conn: sqlite3.Connection):
     ORDER BY sr.unit_id, sr.timestamp
     """
 
-    print(f"[{ts()}] 🔎 Executing main fetch query (streaming)...")
+    print(f"[{ts()}] Executing main fetch query (streaming)...")
     t0 = time.time()
 
     cursor = conn.execute(query)
@@ -225,7 +211,7 @@ def fetch_global_timeseries(conn: sqlite3.Connection):
             print(f"[{ts()}]   ... fetched rows={total:,} units={len(data_by_unit)} elapsed={time.time()-t0:.1f}s")
 
     dt = time.time() - t0
-    print(f"[{ts()}] ✅ Fetch done: rows={total:,} units={len(data_by_unit)} elapsed={dt:.2f}s")
+    print(f"[{ts()}] Fetch done: rows={total:,} units={len(data_by_unit)} elapsed={dt:.2f}s")
 
     if total == 0:
         return None
@@ -303,7 +289,7 @@ def build_supervised_rows(data_by_unit, lookback=48, horizon=1):
     if not X:
         return None, None, None
 
-    print(f"[{ts()}] ✅ Dataset built: units_used={unit_count} samples={len(X):,} elapsed={time.time()-t0:.2f}s")
+    print(f"[{ts()}] Dataset built: units_used={unit_count} samples={len(X):,} elapsed={time.time()-t0:.2f}s")
     return np.array(X, dtype=float), np.array(y, dtype=float), meta
 
 
@@ -422,10 +408,9 @@ def run(db_path: str, model_type: str = "random_forest", lookback: int = 48, hor
     conn = sqlite3.connect(db_path)
 
     print("\n" + "=" * 70)
-    print("🚀 GLOBAL TRAINING: Consumption Forecast Model (ALL buildings)")
+    print("GLOBAL TRAINING: Consumption Forecast Model (ALL buildings)")
     print("=" * 70)
 
-    # indexes + quick diagnostics
     ensure_indexes(conn)
     quick_counts(conn)
     profile_fetch_query(conn)
@@ -437,27 +422,27 @@ def run(db_path: str, model_type: str = "random_forest", lookback: int = 48, hor
         conn.close()
         return
 
-    print(f"[{ts()}] ✅ Loaded units: {len(data_by_unit)}")
+    print(f"[{ts()}] Loaded units: {len(data_by_unit)}")
 
-    print(f"[{ts()}] 🔄 Building supervised dataset (sliding windows)...")
+    print(f"[{ts()}] Building supervised dataset (sliding windows)...")
     X, y, meta = build_supervised_rows(data_by_unit, lookback=lookback, horizon=horizon)
     if X is None:
         print("[ERROR] Not enough data to create training samples.")
         conn.close()
         return
 
-    print(f"[{ts()}] ✅ Samples: {len(X):,} | Features: {X.shape[1]} | Target: next-step energy")
+    print(f"[{ts()}] Samples: {len(X):,} | Features: {X.shape[1]} | Target: next-step energy")
 
     X_train, X_test, y_train, y_test = time_based_split(X, y, meta, test_ratio=test_ratio)
-    print(f"[{ts()}] 🧪 Time split: train={len(X_train):,} test={len(X_test):,} (test_ratio={test_ratio})")
+    print(f"[{ts()}] Time split: train={len(X_train):,} test={len(X_test):,} (test_ratio={test_ratio})")
 
     baseline_test = eval_baseline_persistence(X_test, y_test)
-    print(f"[{ts()}] 📌 Baseline (persistence) TEST: MAE={baseline_test['mae']:.4f} RMSE={baseline_test['rmse']:.4f} R²={baseline_test['r2']:.4f}")
+    print(f"[{ts()}] Baseline (persistence) TEST: MAE={baseline_test['mae']:.4f} RMSE={baseline_test['rmse']:.4f} R²={baseline_test['r2']:.4f}")
 
-    print(f"[{ts()}] 🤖 Training model: {model_type} ...")
+    print(f"[{ts()}] Training model: {model_type} ...")
     t0 = time.time()
     model, scaler = train_model(X_train, y_train, model_type=model_type)
-    print(f"[{ts()}] ✅ Train done in {time.time()-t0:.2f}s")
+    print(f"[{ts()}] Train done in {time.time()-t0:.2f}s")
 
     train_metrics = eval_model(model, scaler, X_train, y_train)
     test_metrics = eval_model(model, scaler, X_test, y_test)
@@ -470,18 +455,18 @@ def run(db_path: str, model_type: str = "random_forest", lookback: int = 48, hor
     }
 
     print("\n" + "=" * 70)
-    print("📈 MODEL PERFORMANCE")
+    print("MODEL PERFORMANCE")
     print("=" * 70)
     print(f"Train: MAE={train_metrics['mae']:.4f} RMSE={train_metrics['rmse']:.4f} R²={train_metrics['r2']:.4f}")
     print(f"Test : MAE={test_metrics['mae']:.4f} RMSE={test_metrics['rmse']:.4f} R²={test_metrics['r2']:.4f}")
 
     file_path, trained_at = save_model(model, scaler, model_type, metrics)
-    print(f"\n[{ts()}] 💾 Saved model: {file_path}")
+    print(f"\n[{ts()}] Saved model: {file_path}")
 
     model_id = register_model_in_db(conn, file_path, trained_at, model_type, metrics)
-    print(f"[{ts()}] 🗂️ Registered model in DB as ACTIVE: {model_id}")
+    print(f"[{ts()}] Registered model in DB as ACTIVE: {model_id}")
 
-    print("\n✅ Global training completed.\n")
+    print("\n Global training completed.\n")
     conn.close()
 
 
