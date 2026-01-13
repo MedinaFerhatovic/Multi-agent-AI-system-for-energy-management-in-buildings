@@ -27,6 +27,8 @@ def make_state(building_id: str, anchor_ts: str):
         "predictions": {},
         "optimization_plans": {},
         "final_decisions": [],
+        "validation_report": {},
+        "policy": {},
         "execution_log": [],
         "errors": [],
     }

@@ -201,7 +201,7 @@ def load_active_consumption_model(conn: sqlite3.Connection) -> Tuple[str, Any, A
     try:
         m = json.loads(metrics_json)
         if isinstance(m, dict):
-            conf = float(m.get("test", {}).get("r2", conf))
+            conf = float(m.get("confidence_score", m.get("test", {}).get("r2", conf)))
             conf = max(0.0, min(1.0, conf))
     except Exception:
         pass
@@ -595,4 +595,48 @@ def get_sensor_id(conn: sqlite3.Connection, unit_id: str, sensor_type: str) -> O
         (unit_id, sensor_type),
     ).fetchone()
     return row["sensor_id"] if row else None
+
+
+def ensure_validation_log(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS system_validation_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            building_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            model_confidence_avg REAL,
+            coverage REAL,
+            blocked_units_count INTEGER,
+            invalid_units_count INTEGER,
+            reasons_json TEXT
+        )
+        """
+    )
+    conn.commit()
+
+
+def insert_validation_log(conn: sqlite3.Connection, row: Dict[str, Any]) -> None:
+    ensure_validation_log(conn)
+    conn.execute(
+        """
+        INSERT INTO system_validation_log (
+            timestamp, building_id, status,
+            model_confidence_avg, coverage,
+            blocked_units_count, invalid_units_count,
+            reasons_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            row["timestamp"],
+            row["building_id"],
+            row["status"],
+            row.get("model_confidence_avg"),
+            row.get("coverage"),
+            row.get("blocked_units_count"),
+            row.get("invalid_units_count"),
+            row.get("reasons_json"),
+        ),
+    )
+    conn.commit()
 

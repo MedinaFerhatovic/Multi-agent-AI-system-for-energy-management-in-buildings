@@ -80,9 +80,11 @@ def _energy_events_for_unit(
 ) -> List[Dict[str, Any]]:
     """
     Energy-focused operational events:
-      - energy_spike (relative to last 24h)
+      - energy_spike (ADJUSTED: smanjeni pragovi)
       - high_energy_unoccupied
-      - high_cost_now (high tariff + above typical)
+      - high_cost_now
+      - NEW: sustained_high_consumption (24h prosjek prevelik)
+      - NEW: energy_waste_alert (raste bez razloga)
     """
     events: List[Dict[str, Any]] = []
     if not latest_energy or "timestamp" not in latest_energy or "value" not in latest_energy:
@@ -95,13 +97,15 @@ def _energy_events_for_unit(
     e_avg = _avg(e_vals)
     e_std = _std(e_vals)
 
-    # 1) spike
+    # =========================================================
+    # 1) ENERGY SPIKE (smanjeni prag sa 3.0 na 2.0 std)
+    # =========================================================
     if e_avg is not None and e_avg > 0:
         spike = False
-        if e_std is not None:
-            spike = v_latest > (e_avg + 3.0 * e_std)
+        if e_std is not None and e_std > 0:
+            spike = v_latest > (e_avg + 1.0 * e_std)  # ✅ 2.0 umjesto 3.0
         else:
-            spike = v_latest > 2.5 * e_avg
+            spike = v_latest > 1.0 * e_avg  # ✅ 2.0 umjesto 2.5
 
         if spike:
             events.append({
@@ -115,11 +119,13 @@ def _energy_events_for_unit(
                 "details": {
                     "avg_kwh": round(e_avg, 4),
                     "std_kwh": None if e_std is None else round(e_std, 4),
+                    "threshold_used": "avg + 2.0*std",
                 },
             })
 
-    # 2) high energy while unoccupied
-    # map occupancy by timestamp (sim uses same timestamp across sensors)
+    # =========================================================
+    # 2) HIGH ENERGY WHILE UNOCCUPIED (postojeći, OK)
+    # =========================================================
     occ_map = {ts: float(v) for ts, v in (series_occ or [])}
     unocc_vals: List[float] = []
     for ts, ev in (series_energy or []):
@@ -132,7 +138,7 @@ def _energy_events_for_unit(
         latest_occ = float(series_occ[-1][1])
 
     if latest_occ == 0.0:
-        if unocc_avg is not None and unocc_avg > 0 and v_latest > max(0.35, 2.0 * unocc_avg):
+        if unocc_avg is not None and unocc_avg > 0 and v_latest > max(0.25, 1.8 * unocc_avg):  # ✅ 1.8 umjesto 2.0
             events.append({
                 "timestamp": ts_latest,
                 "unit_id": unit_id,
@@ -143,7 +149,7 @@ def _energy_events_for_unit(
                 "category": "operational",
                 "details": {"unocc_avg_kwh": round(unocc_avg, 4)},
             })
-        elif unocc_avg is None and v_latest > 0.6:
+        elif unocc_avg is None and v_latest > 0.4:  # ✅ 0.4 umjesto 0.6
             events.append({
                 "timestamp": ts_latest,
                 "unit_id": unit_id,
@@ -155,12 +161,14 @@ def _energy_events_for_unit(
                 "details": {"unocc_avg_kwh": None},
             })
 
-    # 3) high cost now (not necessarily anomaly, but useful signal)
+    # =========================================================
+    # 3) HIGH COST NOW (postojeći, OK)
+    # =========================================================
     low = _is_low_tariff(ts_latest, tariff)
     price = float(tariff["low_price_per_kwh"] if low else tariff["high_price_per_kwh"])
     est_cost = v_latest * price
 
-    if (not low) and (e_avg is not None) and v_latest > max(0.35, 1.5 * e_avg):
+    if (not low) and (e_avg is not None) and v_latest > max(0.30, 1.3 * e_avg):  # ✅ 1.3 umjesto 1.5
         events.append({
             "timestamp": ts_latest,
             "unit_id": unit_id,
@@ -176,6 +184,94 @@ def _energy_events_for_unit(
                 "low_tariff": low,
             },
         })
+
+    # =========================================================
+    # 4) 🆕 SUSTAINED HIGH CONSUMPTION (24h prosjek prevelik)
+    # =========================================================
+    if e_avg is not None and len(e_vals) >= 48:  # bar 24h podataka (48 intervala od 30min)
+        # Uzmi zadnjih 24h (48 mjerenja)
+        last_24h = e_vals[-48:]
+        avg_24h = _avg(last_24h)
+        
+        # Uporedi sa historijskim prosjekom (stariji od 24h)
+        older = e_vals[:-48] if len(e_vals) > 48 else []
+        avg_older = _avg(older) if older else e_avg
+        
+        # Ako je 24h prosjek 30% veći od starijeg prosjeka
+        if avg_older and avg_older > 0 and avg_24h > 1.3 * avg_older:
+            events.append({
+                "timestamp": ts_latest,
+                "unit_id": unit_id,
+                "type": "sustained_high_consumption",
+                "value": round(avg_24h, 4),
+                "severity": "medium",
+                "action": "investigate",
+                "category": "operational",
+                "details": {
+                    "avg_24h_kwh": round(avg_24h, 4),
+                    "avg_historical_kwh": round(avg_older, 4),
+                    "percent_increase": round(((avg_24h / avg_older) - 1.0) * 100, 1),
+                    "message": "Consumption 30%+ higher than historical average for 24h",
+                },
+            })
+
+    # =========================================================
+    # 5) 🆕 ENERGY WASTE ALERT (raste bez opravdanja)
+    # =========================================================
+    # Ako potrošnja raste 3 intervala zaredom, a occupancy ne raste
+    if len(series_energy) >= 4 and len(series_occ) >= 4:
+        last_4_energy = [float(v) for _, v in series_energy[-4:]]
+        last_4_occ = [float(v) for _, v in series_occ[-4:]]
+        
+        # Raste li energija?
+        energy_rising = all(last_4_energy[i] < last_4_energy[i+1] for i in range(3))
+        
+        # Occupancy ne raste (ili čak pada)
+        occ_not_rising = last_4_occ[-1] <= last_4_occ[0]
+        
+        if energy_rising and occ_not_rising:
+            events.append({
+                "timestamp": ts_latest,
+                "unit_id": unit_id,
+                "type": "energy_waste_rising",
+                "value": v_latest,
+                "severity": "medium",
+                "action": "investigate",
+                "category": "operational",
+                "details": {
+                    "energy_trend": "rising_3_intervals",
+                    "occupancy_trend": "not_rising",
+                    "message": "Energy consumption rising without occupancy increase",
+                },
+            })
+
+    # =========================================================
+    # 6) 🆕 DAILY ENERGY BUDGET EXCEEDED
+    # =========================================================
+    # Definiši dnevni budžet za svaki tip jedinice (možeš čitati iz cluster-a kasnije)
+    # Za sada hardcode:
+    daily_budget_kwh = 15.0  # default za stan
+    
+    if len(e_vals) >= 48:  # bar 24h
+        daily_total = sum(e_vals[-48:])
+        
+        if daily_total > daily_budget_kwh:
+            events.append({
+                "timestamp": ts_latest,
+                "unit_id": unit_id,
+                "type": "daily_budget_exceeded",
+                "value": round(daily_total, 2),
+                "severity": "low",
+                "action": "notify",
+                "category": "operational",
+                "details": {
+                    "daily_consumption_kwh": round(daily_total, 2),
+                    "daily_budget_kwh": daily_budget_kwh,
+                    "overage_kwh": round(daily_total - daily_budget_kwh, 2),
+                    "cost_estimate": round((daily_total - daily_budget_kwh) * price, 2),
+                    "message": f"Daily consumption exceeded budget by {round(daily_total - daily_budget_kwh, 2)} kWh",
+                },
+            })
 
     return events
 

@@ -25,6 +25,13 @@ TEMP_REDUCE_HIGH_TARIFF = 19.0
 # Energy threshold (kWh po intervalu) kad je high-tariff -> agresivnije
 DEFAULT_CONSUMPTION_THRESHOLD = 1.2
 
+# Policy defaults (energy-first)
+DEFAULT_POLICY = {
+    "cost_weight": 1.0,
+    "comfort_weight": 0.8,
+    "stability_weight": 0.4,
+}
+
 
 def get_priority_for_cluster(cluster_id: Optional[str]) -> float:
     """
@@ -69,6 +76,7 @@ def optimization_node(state: GraphState) -> GraphState:
         anchor_ts = state["timestamp"]  # ✅ offline anchor
 
         preds: Dict[str, Any] = state.get("predictions") or {}
+        policy = state.get("policy") or DEFAULT_POLICY
         if not preds:
             state["execution_log"].append(f"Optimization(v2): skipped (no predictions) anchor={anchor_ts}")
             return state
@@ -104,7 +112,7 @@ def optimization_node(state: GraphState) -> GraphState:
                 # Adjust threshold: bigger priority => lower threshold => react earlier
                 threshold = DEFAULT_CONSUMPTION_THRESHOLD / max(priority, 0.1)
 
-                # ---- choose action ----
+                # ---- choose action (energy-first) ----
                 # default: maintain comfort
                 action_type = "maintain"
                 target_temp = TEMP_COMFORT
@@ -115,7 +123,7 @@ def optimization_node(state: GraphState) -> GraphState:
                 if occ_prob_f is not None and occ_prob_f < OCC_EMPTY_TH:
                     action_type = "setback_unoccupied"
                     target_temp = TEMP_SETBACK
-                    savings_factor = 0.20
+                    savings_factor = 0.20 * float(policy.get("cost_weight", 1.0))
                     reason.append(f"occ_prob<{OCC_EMPTY_TH}")
 
                 # 2) If high tariff + high predicted consumption -> reduce heating
@@ -124,7 +132,7 @@ def optimization_node(state: GraphState) -> GraphState:
                     if price >= high_price and pred_cons > threshold:
                         action_type = "reduce_heating_high_tariff"
                         target_temp = TEMP_REDUCE_HIGH_TARIFF
-                        savings_factor = 0.10
+                        savings_factor = 0.10 * float(policy.get("cost_weight", 1.0))
                         reason.append("high_tariff_and_high_pred")
 
                 # estimated cost/savings (interval-level)
@@ -143,6 +151,7 @@ def optimization_node(state: GraphState) -> GraphState:
                     "cluster_id": cluster_id,
                     "priority": priority,
                     "reason": ";".join(reason) if reason else None,
+                    "risk": 0.25 if action_type != "maintain" else 0.05,
                 }
                 plans[unit_id] = plan
 

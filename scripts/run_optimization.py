@@ -14,9 +14,13 @@ from utils.db_helper import (
 from agents.data_monitor import data_monitor_node
 from agents.prediction import prediction_node
 from agents.optimization import optimization_node
+from scripts import feature_extractor, clustering
 
 PIPELINE_NAME = "monitor_predict_opt_backfill"
 STEP_HOURS = 24
+RUN_FEATURES_AND_CLUSTERING = True
+
+DB_PATH = BASE_DIR / "db" / "smartbuilding.db"
 
 def make_state(building_id: str, anchor_ts: str):
     return {
@@ -28,6 +32,8 @@ def make_state(building_id: str, anchor_ts: str):
         "predictions": {},
         "optimization_plans": {},
         "final_decisions": [],
+        "validation_report": {},
+        "policy": {},
         "execution_log": [],
         "errors": [],
     }
@@ -40,6 +46,10 @@ if __name__ == "__main__":
     for bid in buildings:
         with connect() as conn:
             anchor = get_or_init_anchor(conn, PIPELINE_NAME, bid)
+
+        if RUN_FEATURES_AND_CLUSTERING:
+            feature_extractor.run(str(DB_PATH), bid)
+            clustering.run(str(DB_PATH), bid, n_clusters=None)
 
         state = make_state(bid, anchor)
         state = data_monitor_node(state)

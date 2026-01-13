@@ -380,3 +380,18 @@ CREATE TABLE IF NOT EXISTS pipeline_progress (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (pipeline_name, building_id)
 );
+
+-- =========================================================
+-- 14) SYSTEM_VALIDATION_LOG
+-- =========================================================
+CREATE TABLE IF NOT EXISTS system_validation_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    building_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    model_confidence_avg REAL,
+    coverage REAL,
+    blocked_units_count INTEGER,
+    invalid_units_count INTEGER,
+    reasons_json TEXT
+);

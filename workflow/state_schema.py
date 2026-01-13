@@ -13,5 +13,7 @@ class GraphState(TypedDict):
     optimization_plans: Dict[str, Any]
     final_decisions: List[Dict[str, Any]]
 
+    validation_report: Dict[str, Any]
+    policy: Dict[str, Any]
     execution_log: List[str]
     errors: List[str]
