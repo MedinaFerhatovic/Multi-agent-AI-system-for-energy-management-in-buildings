@@ -257,95 +257,84 @@ def decision_node(state: GraphState) -> GraphState:
                 approved = 1 if confidence >= approve_th else 0
                 reasoning_notes = [f"conf={confidence:.2f}", f"plan={plan_action}"]
 
+                # agents/decision.py - SIMPLIFIED ENERGY OVERRIDE SECTION
+
                 # =====================================================
-                # 🆕 4) ENERGY ALERT OVERRIDES (highest priority)
+                # 4) ENERGY ALERT OVERRIDES (highest priority)
                 # =====================================================
-                
-                # 4a) ENERGY SPIKE - Emergency action
+
+                energy_override_applied = False
+
+                # 4a) ENERGY SPIKE - Emergency action (HIGHEST PRIORITY)
                 spike_event = _get_energy_spike_event(unit_events)
                 if spike_event:
                     spike_value = spike_event.get("value", 0)
                     action = "emergency_reduce_heating"
                     target_temp = ENERGY_SPIKE_EMERGENCY_TEMP
-                    approved = 1  # Force approve emergency action
-                    confidence = 0.95  # High confidence za emergency
+                    approved = 1
+                    confidence = 0.95
                     overridden_cnt += 1
                     energy_alert_overrides += 1
-                    reasoning_notes.append(f"🚨EMERGENCY:energy_spike={spike_value}kWh")
-                    reasoning_notes.append(f"forced_temp={ENERGY_SPIKE_EMERGENCY_TEMP}°C")
-                
-                # 4b) SUSTAINED HIGH CONSUMPTION - Gradual reduction
-                elif not spike_event:  # Samo ako nema spike-a (spike je prioritetniji)
+                    energy_override_applied = True
+                    reasoning_notes.append(f"🚨SPIKE:val={spike_value:.2f}kWh->temp={ENERGY_SPIKE_EMERGENCY_TEMP}°C")
+
+                # 4b) SUSTAINED HIGH - Only if no spike
+                if not energy_override_applied:
                     sustained_event = _get_sustained_high_event(unit_events)
                     if sustained_event:
                         sustained_value = sustained_event.get("value", 0)
                         details = sustained_event.get("details", {})
                         percent_increase = details.get("percent_increase", 0)
                         
-                        # Ako nije već na emergency akciji, smanji temperaturu
                         if target_temp and target_temp > (MIN_COMFORT_TEMP + 0.5):
                             target_temp -= SUSTAINED_HIGH_TEMP_REDUCTION
-                            target_temp = max(target_temp, MIN_COMFORT_TEMP)  # Ne idi ispod minimuma
-                            action = "reduce_heating_sustained_high"
+                            target_temp = max(target_temp, MIN_COMFORT_TEMP)
+                            action = "reduce_heating_sustained"
                             approved = 1
                             overridden_cnt += 1
                             energy_alert_overrides += 1
-                            reasoning_notes.append(f"⚠️sustained_high:24h_avg={sustained_value}kWh")
-                            reasoning_notes.append(f"increase={percent_increase}%")
-                            reasoning_notes.append(f"temp_reduced_by={SUSTAINED_HIGH_TEMP_REDUCTION}°C")
-                
-                # 4c) ENERGY WASTE RISING - Aggressive reduction
-                waste_event = _get_energy_waste_event(unit_events)
-                if waste_event and not spike_event:  # Ako nema spike-a
-                    waste_value = waste_event.get("value", 0)
-                    
-                    # Ako potrošnja raste bez opravdanja, primijeni štednju
-                    if "setback" not in action and "reduce" not in action:
-                        action = "reduce_heating_waste_detected"
-                        if target_temp and target_temp > MIN_COMFORT_TEMP:
-                            target_temp = max(MIN_COMFORT_TEMP, target_temp - 0.5)
-                        approved = 1
-                        overridden_cnt += 1
-                        energy_alert_overrides += 1
-                        reasoning_notes.append(f"⚠️energy_waste:rising_trend={waste_value}kWh")
-                
-                # 4d) DAILY BUDGET EXCEEDED - Warning only (ne mijenjaj akciju)
+                            energy_override_applied = True
+                            reasoning_notes.append(f"⚠️SUSTAINED:24h={sustained_value:.2f}kWh,+{percent_increase}%->-{SUSTAINED_HIGH_TEMP_REDUCTION}°C")
+
+                # 4c) ENERGY WASTE - Only if no higher priority override
+                if not energy_override_applied:
+                    waste_event = _get_energy_waste_event(unit_events)
+                    if waste_event:
+                        waste_value = waste_event.get("value", 0)
+                        
+                        if "setback" not in action and "reduce" not in action:
+                            action = "reduce_heating_waste"
+                            if target_temp and target_temp > MIN_COMFORT_TEMP:
+                                target_temp = max(MIN_COMFORT_TEMP, target_temp - 0.5)
+                            approved = 1
+                            overridden_cnt += 1
+                            energy_alert_overrides += 1
+                            energy_override_applied = True
+                            reasoning_notes.append(f"⚠️WASTE:trend={waste_value:.2f}kWh->-0.5°C")
+
+                # 4d) BUDGET EXCEEDED - Warning only (always log, doesn't block other actions)
                 budget_event = _get_budget_exceeded_event(unit_events)
                 if budget_event:
                     details = budget_event.get("details", {})
                     daily_kwh = details.get("daily_consumption_kwh", 0)
                     overage = details.get("overage_kwh", 0)
                     cost = details.get("cost_estimate", 0)
-                    
-                    if BUDGET_EXCEEDED_WARNING_ONLY:
-                        # Samo loguj, ne mijenjaj akciju
-                        reasoning_notes.append(f"💰budget_exceeded:daily={daily_kwh}kWh")
-                        reasoning_notes.append(f"overage={overage}kWh cost={cost}BAM")
-                    else:
-                        # Opciono: Agresivnija akcija ako prelazi budžet
-                        if overage > 2.0:  # Ako je overage značajan
-                            action = "reduce_heating_budget"
-                            if target_temp and target_temp > MIN_COMFORT_TEMP:
-                                target_temp = MIN_COMFORT_TEMP
-                            approved = 1
-                            overridden_cnt += 1
-                            energy_alert_overrides += 1
-                            reasoning_notes.append(f"💰BUDGET:overage={overage}kWh forced_reduction")
+                    reasoning_notes.append(f"💰BUDGET:daily={daily_kwh:.1f}kWh,over={overage:.1f}kWh,cost={cost:.2f}BAM")
 
                 # =====================================================
-                # 5) Comfort override (ako nema energy emergency)
+                # 5) Comfort override (only if no energy emergency)
                 # =====================================================
-                if not spike_event:  # Comfort override samo ako nema emergency
+                if not energy_override_applied:
                     temp_ev = _get_temp_below_comfort_event(unit_events)
                     if temp_ev and target_temp is not None and target_temp < MIN_COMFORT_TEMP:
                         target_temp = MIN_COMFORT_TEMP
                         action = "maintain_min_comfort"
                         approved = 1
                         overridden_cnt += 1
-                        reasoning_notes.append(f"override:temp_below_comfort={temp_ev.get('value')}")
+                        reasoning_notes.append(f"🌡️COMFORT:temp={temp_ev.get('value')}°C->min={MIN_COMFORT_TEMP}°C")
 
-                # 6) Occupancy override (samo ako nema energy emergency)
-                if not spike_event:
+                # 6) Occupancy override (only if no energy emergency)
+                if not energy_override_applied:
                     occ_prob = plan.get("predicted_occupancy_prob", pred.get("predicted_occupancy_prob"))
                     occ_prob_f = None if occ_prob is None else float(occ_prob)
                     if occ_prob_f is not None and occ_prob_f > OCC_HIGH_TH:
@@ -354,7 +343,7 @@ def decision_node(state: GraphState) -> GraphState:
                             action = "maintain_occupied"
                             approved = 1
                             overridden_cnt += 1
-                            reasoning_notes.append(f"override:occ_prob_high={occ_prob_f:.2f}")
+                            reasoning_notes.append(f"👥OCC:prob={occ_prob_f:.2f}->temp=20°C")
 
                 # 7) If not approved -> fall back to maintain (safe)
                 if approved == 0:

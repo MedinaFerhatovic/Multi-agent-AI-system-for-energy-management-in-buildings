@@ -395,3 +395,34 @@ CREATE TABLE IF NOT EXISTS system_validation_log (
     invalid_units_count INTEGER,
     reasons_json TEXT
 );
+
+-- Add these indexes to your schema for better performance
+
+-- Decisions log by building and time
+CREATE INDEX IF NOT EXISTS idx_decisions_building_time
+ON decisions_log(building_id, timestamp DESC);
+
+-- Anomalies by building, unit, and severity
+CREATE INDEX IF NOT EXISTS idx_anomalies_severity
+ON anomalies_log(building_id, unit_id, severity, timestamp DESC);
+
+-- Predictions by building and target time
+CREATE INDEX IF NOT EXISTS idx_predictions_target
+ON predictions(building_id, timestamp_target DESC);
+
+-- Optimization plans by building and time
+CREATE INDEX IF NOT EXISTS idx_optim_plans_building_time
+ON optimization_plans(building_id, timestamp DESC);
+
+-- Composite index for energy readings (most common query)
+CREATE INDEX IF NOT EXISTS idx_sr_energy_composite
+ON sensor_readings(sensor_type, quality_flag, building_id, unit_id, timestamp)
+WHERE sensor_type = 'energy' AND quality_flag = 'ok';
+
+-- Units by building and floor (for UI/reporting)
+CREATE INDEX IF NOT EXISTS idx_units_building_floor
+ON units(building_id, floor);
+
+-- System validation by building and status
+CREATE INDEX IF NOT EXISTS idx_validation_status
+ON system_validation_log(building_id, status, timestamp DESC);
