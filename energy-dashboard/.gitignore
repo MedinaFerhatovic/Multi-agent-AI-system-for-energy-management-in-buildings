@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Model files (optional - ako ne želiš verzionirati trained models)
+*.pkl
+*.joblib
+models/*.pkl
+
+# Data files (ako imaš CSVove ili privremene)
+*.csv
+data/
+temp/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.env
+.env.local
