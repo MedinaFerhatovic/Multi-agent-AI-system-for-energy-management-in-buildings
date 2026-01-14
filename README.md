@@ -52,10 +52,9 @@ python scripts/clustering.py --building B002
 
 ```
 
-5) Treniraj modele (pokreni svaki posebno):
+5) Treniraj modele:
 ```bash
-python scripts/train_models.py --model random_forest
-python scripts/train_models.py --model gradient_boosting
+python scripts/train_models.py
 ```
 
 6) Pokreni agente pojedinacno:
