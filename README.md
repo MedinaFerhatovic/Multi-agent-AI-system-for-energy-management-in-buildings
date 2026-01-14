@@ -39,9 +39,10 @@ python scripts/init_db.py
 python scripts/data.py
 ```
 
-3) Feature engineering:
+3) Feature engineering (pokreni po zgradi):
 ```bash
-python scripts/feature_extractor.py
+python scripts/feature_extractor.py --building B001
+python scripts/feature_extractor.py --building B002
 ```
 
 4) Clustering:
@@ -82,7 +83,8 @@ streamlit run energy-dashboard/Dashboard.py
 ## Dodatne skripte
 - Feature engineering i clustering:
 ```bash
-python scripts/feature_extractor.py
+python scripts/feature_extractor.py --building B001
+python scripts/feature_extractor.py --building B002
 python scripts/clustering.py
 ```
 
