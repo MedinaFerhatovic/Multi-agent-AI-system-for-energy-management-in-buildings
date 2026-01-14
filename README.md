@@ -47,7 +47,9 @@ python scripts/feature_extractor.py --building B002
 
 4) Clustering:
 ```bash
-python scripts/clustering.py
+python scripts/clustering.py --building B001
+python scripts/clustering.py --building B002
+
 ```
 
 5) Treniraj modele (pokreni svaki posebno):
