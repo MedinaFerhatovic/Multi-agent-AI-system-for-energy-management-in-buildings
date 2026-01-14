@@ -76,6 +76,3 @@ python scripts/test_model.py
 python -m unittest tests/test_backtest.py
 ```
 
-## Napomene
-- Dashboard koristi cache; podaci nisu real-time.
-- Ako dodajes nove zavisnosti, azuriraj `requirements.txt`.
