@@ -28,7 +28,7 @@ dashboardu.
 pip install -r requirements.txt
 ```
 
-## Brzi start
+## Brzi start (korak po korak)
 1) Kreiraj shemu baze:
 ```bash
 python scripts/init_db.py
@@ -39,31 +39,76 @@ python scripts/init_db.py
 python scripts/data.py
 ```
 
-3) Pokreni pipeline (LangGraph workflow):
+3) Feature engineering:
+```bash
+python scripts/feature_extractor.py
+```
+
+4) Clustering:
+```bash
+python scripts/clustering.py
+```
+
+5) Treniraj modele (pokreni svaki posebno):
+```bash
+python scripts/train_models.py --model random_forest
+python scripts/train_models.py --model gradient_boosting
+```
+
+6) Pokreni agente pojedinacno:
+```bash
+python scripts/run_data_monitor.py
+python scripts/run_prediction.py
+python scripts/run_optimization.py
+python scripts/run_decision.py
+```
+
+7) Pokreni sve agente odjednom (LangGraph workflow):
 ```bash
 python scripts/run_langgraph.py
 ```
 
-4) Pokreni dashboard:
+8) Sedmicna analiza i testovi:
+```bash
+python scripts/run_weekly_analysis.py
+python scripts/test_model.py
+```
+
+9) Pokreni dashboard:
 ```bash
 streamlit run energy-dashboard/Dashboard.py
 ```
 
 ## Dodatne skripte
-- Full pipeline backfill kroz zgrade:
+- Feature engineering i clustering:
 ```bash
+python scripts/feature_extractor.py
+python scripts/clustering.py
+```
+
+- Trening i testiranje modela:
+```bash
+python scripts/train_models.py --model random_forest
+python scripts/train_models.py --model gradient_boosting
+python scripts/test_model.py
+```
+
+- Agenti pojedinacno:
+```bash
+python scripts/run_data_monitor.py
+python scripts/run_prediction.py
+python scripts/run_optimization.py
 python scripts/run_decision.py
+```
+
+- Sve agente odjednom (LangGraph workflow):
+```bash
+python scripts/run_langgraph.py
 ```
 
 - Sedmicna analiza:
 ```bash
 python scripts/run_weekly_analysis.py
-```
-
-- Trening i testiranje modela:
-```bash
-python scripts/train_models.py
-python scripts/test_model.py
 ```
 
 ## Baza podataka
