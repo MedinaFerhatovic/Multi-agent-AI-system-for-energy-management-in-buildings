@@ -1,0 +1,9 @@
+# Core dashboard
+streamlit
+pandas
+plotly
+
+# ML / workflow
+numpy
+scikit-learn
+langgraph
