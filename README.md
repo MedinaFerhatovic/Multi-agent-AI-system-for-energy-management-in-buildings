@@ -4,14 +4,14 @@ Ovaj projekat prikazuje kompletan tok od simulacije podataka, preko AI pipeline-
 (monitoring, predikcija, optimizacija, odluke), do vizuelizacije u Streamlit
 dashboardu.
 
-## Istaknuto
+## Ukratko
 - Multi-agent workflow zasnovan na LangGraph (monitor -> predikcija -> optimizacija -> odluka)
 - SQLite model podataka (zgrade, stanovi, senzori, anomalije, odluke)
 - Feature extraction + clustering za analitiku po jedinicama
 - Streamlit dashboard za pregled, analitiku i optimizacione planove
 
 ## Struktura projekta
-- `agents/` AI agenti (data monitor, prediction, optimization, decision)
+- `agents/` AI agenti (data monitor, prediction, optimization, decision, weekly analyzer)
 - `workflow/` LangGraph workflow i schema stanja
 - `scripts/` CLI skripte za DB init, simulaciju i pokretanje pipeline-a
 - `db/` SQLite schema i lokacija baze
@@ -19,7 +19,7 @@ dashboardu.
 - `utils/` DB helperi i validacija
 - `tests/` osnovni testovi/backtest
 
-## Preduvjeti
+## Uslovi
 - Python 3.9+
 - SQLite (dolazi uz Python)
 
@@ -28,18 +28,18 @@ dashboardu.
 pip install -r requirements.txt
 ```
 
-## Brzi start (korak po korak)
-1) Kreiraj shemu baze:
+## Start (korak po korak)
+1) Kreiranje sheme baze:
 ```bash
 python scripts/init_db.py
 ```
 
-2) Generisi demo podatke (simulacija):
+2) Generisanje demo podatke (simulacija):
 ```bash
 python scripts/data.py
 ```
 
-3) Feature engineering (pokreni po zgradi):
+3) Feature engineering (pokrenuti po zgradi):
 ```bash
 python scripts/feature_extractor.py --building B001
 python scripts/feature_extractor.py --building B002
@@ -52,12 +52,13 @@ python scripts/clustering.py --building B002
 
 ```
 
-5) Treniraj modele:
+5) Treniranje modela:
 ```bash
-python scripts/train_models.py
+python scripts/train_models.py --model random_forest
+python scripts/train_models.py --model gradient_boosting
 ```
 
-6) Pokreni agente pojedinacno:
+6) Pokretanje agenata pojedinacno:
 ```bash
 python scripts/run_data_monitor.py
 python scripts/run_prediction.py
@@ -65,7 +66,7 @@ python scripts/run_optimization.py
 python scripts/run_decision.py
 ```
 
-7) Pokreni sve agente odjednom (LangGraph workflow):
+7) Pokretanje svih agenata odjednom (LangGraph workflow):
 ```bash
 python scripts/run_langgraph.py
 ```
@@ -76,42 +77,9 @@ python scripts/run_weekly_analysis.py
 python scripts/test_model.py
 ```
 
-9) Pokreni dashboard:
+9) Pokretanje dashboard-a:
 ```bash
 streamlit run energy-dashboard/Dashboard.py
-```
-
-## Dodatne skripte
-- Feature engineering i clustering:
-```bash
-python scripts/feature_extractor.py --building B001
-python scripts/feature_extractor.py --building B002
-python scripts/clustering.py
-```
-
-- Trening i testiranje modela:
-```bash
-python scripts/train_models.py --model random_forest
-python scripts/train_models.py --model gradient_boosting
-python scripts/test_model.py
-```
-
-- Agenti pojedinacno:
-```bash
-python scripts/run_data_monitor.py
-python scripts/run_prediction.py
-python scripts/run_optimization.py
-python scripts/run_decision.py
-```
-
-- Sve agente odjednom (LangGraph workflow):
-```bash
-python scripts/run_langgraph.py
-```
-
-- Sedmicna analiza:
-```bash
-python scripts/run_weekly_analysis.py
 ```
 
 ## Baza podataka
